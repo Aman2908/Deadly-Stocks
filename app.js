@@ -152,7 +152,7 @@ function renderRows(t) {
     st.sort = st.sort && st.sort[0] === k ? [k, -st.sort[1]] : [k, -1]; renderRows(t);
   });
 }
-// Deadly Stocks's Intraday Boost price buckets, applied to the day's open (TF client logic)
+// Intraday Boost price buckets, applied to the day's open
 const PRICE_BUCKETS = ["All", "100 - 1K", "1K - 1.5K", "1.5K - 2K", "2K - 3K", "3K - 5K", "5K - Beyond"];
 function inBucket(e, b) {
   if (!(e > 0)) return false;
@@ -241,7 +241,7 @@ PAGES.home = {
       ["fiiDii", "🏦", "FII / DII", "Institutional cash-market flows, collected daily from NSE."],
     ];
     v.innerHTML = `
-      <div class="card hero"><small>TRADEFINDER · LOCAL WORKSPACE</small><h2>Welcome back</h2>
+      <div class="card hero"><small>DEADLY STOCKS · WORKSPACE</small><h2>Welcome back</h2>
         <div class="note">Scanners, flow and setups — one workspace for the session. Every number is computed locally from your Upstox feed + NSE.</div>
         <div class="row" style="margin-top:12px"><span class="pill ${d.status.market_open ? "act" : ""}">${d.status.market_open ? "Market open" : "Market closed"}</span>
         <span class="pill">Breadth: <b class="up">${d.adv}</b> / <b class="dn">${d.dec}</b></span>
@@ -253,23 +253,23 @@ PAGES.home = {
   },
 };
 
-// Tooltips are Deadly Stocks's own scanner descriptions (from its JS bundle); "Clone rule" says how we compute it.
+// Tooltips: scanner description, then "Rule" = how we compute it.
 const TIP = {
-  bb: "Stocks breaking out with momentum as participation builds.<br><i>Clone rule (calibrated, 69% time match): 5-min close beyond the day's running high/low. SGN % = best move since the signal.</i>",
-  ib: "Stocks with a sharp pickup in today's activity versus the last 20 sessions.<br><i>Clone rule (refit on 01-Oct full session): R.FAC = k·x − 0.3, x = high−low since 09:16 ÷ 20-day avg full-day range, k learned per stock from TF that day (fallback 1.626·x − 0.409). Out-of-sample 5.7–15%. SGN: LTP vs open.</i>",
+  bb: "Stocks breaking out with momentum as participation builds.<br><i>Rule (calibrated, 69% time match): 5-min close beyond the day's running high/low. SGN % = best move since the signal.</i>",
+  ib: "Stocks with a sharp pickup in today's activity versus the last 20 sessions.<br><i>Rule (refit on 01-Oct full session): R.FAC = k·x − 0.3, x = high−low since 09:16 ÷ 20-day avg full-day range, k learned per stock that day (fallback 1.626·x − 0.409). Out-of-sample 5.7–15%. SGN: LTP vs open.</i>",
   tl: "Names trading near the day's high — candidates for breakouts and reversals from those levels. Diff = % below the day high.",
   ll: "Names trading near the day's low — candidates for breakdowns and reversal setups. Diff = % above the day low.",
   tg: "Stocks that have shown the highest rise compared to yesterday's close.",
   tlo: "Stocks that have taken the steepest falls compared to yesterday's close.",
   hp: "Cash-segment names with the highest turnover today (₹ Cr).",
-  sp: "Stocks with a sharp volume and price move in the last 5 / 10 minutes.<br><i>Clone rule: move ≥0.3% on ≥2× the 20-day average bar volume. Tile = volume spike.</i>",
-  ls: "LOM = Loss Of Momentum. Bullish LOM: price was falling but bulls have entered. Bearish LOM: price was rising but bears have entered. For intraday trading.<br><i>Clone rule (TF thresholds unpublished): 3 lower closes into a fresh 1-hour low, then a close above the prior candle's high (mirror for bearish), 5-min.</i>",
-  ll2: "LOMs for swing trading — ride full swings and take advantage of gap up/down.<br><i>Clone rule: same as short term on 15-min candles.</i>",
-  cb: "Stocks that were consolidating in a tight range and have now broken out. Bullish = upside breakout, Bearish = downside.<br><i>Clone rule: 8-candle box ≤1.5 avg candle ranges, close outside it.</i>",
-  dr: "Stocks trading near day's high or low but showing signs of reversal.<br><i>Clone rule: candle after the day's extreme closes back through it and VWAP.</i>",
-  td: "Stocks breaking both the 2-day high or low — a stronger momentum shift.<br><i>Clone rule (calibrated, F1 0.61): first close beyond both prior sessions' high/low.</i>",
-  ia: "Completely backtested strategy for Nifty and BankNifty.<br><i>Clone rule (matches TF's rows): index direction vs previous close at Morning 09:50, Midday 10:45 and Day End 14:55.</i>",
-  sn: "Backtested swing strategy with a Sniper Reversal entry. Updated every Friday at 4pm.<br><i>Clone rule (calibrated, 10/12 names): two lower weekly lows, then a higher-low week closing above the prior week, in the top 60% of its range.</i>",
+  sp: "Stocks with a sharp volume and price move in the last 5 / 10 minutes.<br><i>Rule: move ≥0.3% on ≥2× the 20-day average bar volume. Tile = volume spike.</i>",
+  ls: "LOM = Loss Of Momentum. Bullish LOM: price was falling but bulls have entered. Bearish LOM: price was rising but bears have entered. For intraday trading.<br><i>Rule (thresholds approximate): 3 lower closes into a fresh 1-hour low, then a close above the prior candle's high (mirror for bearish), 5-min.</i>",
+  ll2: "LOMs for swing trading — ride full swings and take advantage of gap up/down.<br><i>Rule: same as short term on 15-min candles.</i>",
+  cb: "Stocks that were consolidating in a tight range and have now broken out. Bullish = upside breakout, Bearish = downside.<br><i>Rule: 8-candle box ≤1.5 avg candle ranges, close outside it.</i>",
+  dr: "Stocks trading near day's high or low but showing signs of reversal.<br><i>Rule: candle after the day's extreme closes back through it and VWAP.</i>",
+  td: "Stocks breaking both the 2-day high or low — a stronger momentum shift.<br><i>Rule (calibrated, F1 0.61): first close beyond both prior sessions' high/low.</i>",
+  ia: "Completely backtested strategy for Nifty and BankNifty.<br><i>Rule (verified): index direction vs previous close at Morning 09:50, Midday 10:45 and Day End 14:55.</i>",
+  sn: "Backtested swing strategy with a Sniper Reversal entry. Updated every Friday at 4pm.<br><i>Rule (calibrated, 10/12 names): two lower weekly lows, then a higher-low week closing above the prior week, in the top 60% of its range.</i>",
   b10: "Stocks breaking through 10-day highs or lows. Above the 10-day high = bullish momentum; below the 10-day low = bearish control.",
   b50: "Stocks breaking through 50-day highs or lows — significant shifts in market trends.",
   rr: "Stocks exhibiting reversal patterns on the daily timeframe — potential trend flips for swing traders.",
@@ -342,7 +342,7 @@ PAGES.sectorScope = {
     const d = await api("sector_scope"), me = PAGES.sectorScope;
     v.innerHTML = `<div class="row" style="margin-bottom:12px"><span class="live-b">LIVE</span> <span class="info" data-tip="${esc(TIP.ss)}">💡</span>
         <button class="ghost ${me.mode === "heatmap" ? "on" : ""}" id="m1">Heatmap</button><button class="ghost ${me.mode === "detail" ? "on" : ""}" id="m2">Detail View</button>
-        <span class="note">Deadly Stocks's sector groups. Daily sector score = the group's index % change (Upstox). Tile size = R.FAC.</span></div>
+        <span class="note">Sector groups. Daily sector score = the group's index % change (Upstox). Tile size = R.FAC.</span></div>
       <div id="ss"></div>`;
     $("#m1").onclick = () => { me.mode = "heatmap"; me.render(v); };
     $("#m2").onclick = () => { me.mode = "detail"; me.render(v); };
@@ -473,7 +473,7 @@ PAGES.optionApex = {
     }
     $("#dials").innerHTML = `<div style="text-align:center">${gaugeSVG(d.sentiment.x, d.sentiment.label)}<b>Sentimental Dial</b></div>
       <div style="text-align:center">${gaugeSVG(d.pcr.x, d.pcr.label)}<b>PCR Dial</b> <span class="mut">${d.pcr.start ?? "—"} → ${d.pcr.value ?? "—"}</span></div>
-      <div class="note" style="grid-column:1/-1">Flow bars: ${esc(d.flux_source)} (TF: OI refreshes every 3 minutes).</div>`;
+      <div class="note" style="grid-column:1/-1">Flow bars: ${esc(d.flux_source)} (OI refreshes every 3 minutes).</div>`;
     const mf = $("#mflux");
     if (d.money_flux.length) treemap(mf, d.money_flux.map(t => ({ w: Math.max(t.rf, 0.05), label: t.sym, sub: f2(t.pchg) + "%", color: heat(t.pchg), tip: `<b>${t.sym}</b> ${f2(t.pchg)}% · R.FAC ${f2(t.rf)}` })), 330);
     else mf.innerHTML = `<div class="empty">No constituent list for ${st.index}</div>`;
