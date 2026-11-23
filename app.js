@@ -76,19 +76,38 @@ function hue(s) { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) %
 function symCell(r) {
   const h = hue(r.sym);
   return `<div class="sym"><span class="av" style="background:hsla(${h},45%,40%,.35);color:hsl(${h},70%,78%)">${esc(r.sym.slice(0, 2))}</span>
-    <div><b>${esc(r.sym)}</b><small>${esc(r.name || "")}</small></div></div>`;
+    <div><a class="symlink" href="${esc(chartUrl(r.sym))}" target="_blank" rel="noopener noreferrer" title="Open ${esc(r.sym)} chart" onclick="event.preventDefault();openChart('${esc(r.sym)}')"><b>${esc(r.sym)}</b></a><small>${esc(r.name || "")}</small></div></div>`;
 }
 const wl = () => store.get("watch", []);
 function starCell(r) {
   const on = wl().includes(r.sym);
-  return `<span class="chart-l" onclick="openChart('${r.sym}')" title="Chart">📈</span>
+  return `<span class="chart-l" onclick="openChart('${r.sym}')" title="Open Chart">📈</span>
     <span class="star ${on ? "on" : ""}" onclick="toggleWatch('${r.sym}',this)" title="Watchlist">${on ? "★" : "☆"}</span>`;
 }
 window.toggleWatch = (s, el) => {
   let w = wl(); w = w.includes(s) ? w.filter(x => x !== s) : [...w, s]; store.set("watch", w);
   if (el) { el.classList.toggle("on"); el.textContent = w.includes(s) ? "★" : "☆"; }
 };
-window.openChart = s => window.open(`https://www.tradingview.com/chart/?symbol=NSE:${encodeURIComponent(s.replace("&", "_"))}`, "_blank");
+/* Chart links — Deadly Stocks's own builders (bundle 4071): provider preference, TradingView default, 5-min. */
+const CHART_PROVIDERS = { tradingview: "TradingView", lemonn: "Lemonn", fyers: "Fyers" };
+const chartProvider = () => { const p = store.get("chart_provider", "tradingview"); return CHART_PROVIDERS[p] ? p : "tradingview"; };
+function chartUrl(sym, prov = chartProvider()) {
+  sym = String(sym || "").trim();
+  if (prov === "lemonn") return `https://tv.lemonn.co.in/symbol/${sym.replace(/NIFTY 50/g, "NIFTY").replace(/NIFTY BANK/g, "BANKNIFTY")}`;
+  if (prov === "fyers") return `https://trade.fyers.in/popout/index.html?symbol=NSE:${sym}-EQ`.replace(/NIFTY 50/g, "NIFTY50").replace(/NIFTY BANK/g, "NIFTYBANK")
+    .replace(/NIFTY MID SELECT/g, "MIDCPNIFTY").replace("&", "%26").replace("NIFTY50-EQ", "NIFTY50-INDEX").replace("NIFTYBANK-EQ", "NIFTYBANK-INDEX")
+    .replace("MIDCPNIFTY-EQ", "MIDCPNIFTY-INDEX").replace("NSE:SENSEX-EQ", "BSE:SENSEX-INDEX");
+  return `https://www.tradingview.com/chart/?symbol=NSE:${sym.replace(/[-&]/g, "_")}&interval=5`.replace(/NIFTY 50/g, "NIFTY").replace(/NIFTY BANK/g, "BANKNIFTY");
+}
+window.openChart = s => window.open(chartUrl(s), "_blank", "noopener,noreferrer");
+// Row / tile click → chart (like TF's symbol link + heatmap tiles). Stars, links, inputs, buttons keep their own action;
+// selecting text doesn't count as a click.
+document.addEventListener("click", e => {
+  if (e.defaultPrevented || e.button !== 0 || String(getSelection() || "")) return;
+  if (e.target.closest("a,button,input,select,label,.star,.chart-l,th")) return;
+  const el = e.target.closest("tr[data-sym],.t[data-sym]"); if (!el) return;
+  openChart(el.dataset.sym);
+});
 
 /* ───────────── tooltip ───────────── */
 const tip = $("#tip");
@@ -223,7 +242,7 @@ function renderRows(t, { quiet } = {}) {
       return `<td class="${c.r ? "r" : ""}${fl}">${c.fmt ? c.fmt(r) : esc(r[c.k])}</td>`;
     }).join("");
     const isNew = t.prev && !oldVal[key];
-    return `<tr data-key="${esc(key)}" class="${isNew ? "is-new" : ""}">${tds}</tr>`;
+    return `<tr data-key="${esc(key)}" data-sym="${esc(r.sym)}" title="Open ${esc(r.sym)} chart" class="${isNew ? "is-new" : ""}">${tds}</tr>`;
   }).join("") : `<tr><td colspan="${o.cols.length}" class="empty">${o.empty || "Waiting on session prints — signals fill as the tape builds."}</td></tr>`;
   const top = tw.scrollTop;
   tw.innerHTML = `<table><thead><tr>${th}</tr></thead><tbody>${body}</tbody></table>`;
@@ -254,7 +273,7 @@ function drawHeat(t, el, rows) {
   if (!n) { el.style.height = "auto"; el.innerHTML = `<div class="empty">Heatmap fills once session prints arrive.</div>`; return; }
   const items = rows.slice(0, 50).map((r, i) => {
     const v = Number(key(r)), base = Number.isFinite(v) && k !== "sym" ? Math.abs(v) : (n - i);
-    return { w: Math.max(Math.pow(base || Math.abs(r.pchg) || .1, 2) * (HEAT_W[i] ?? 1), .01), label: r.sym, sub: `${f2(r.pchg)}%`,
+    return { w: Math.max(Math.pow(base || Math.abs(r.pchg) || .1, 2) * (HEAT_W[i] ?? 1), .01), sym: r.sym, label: r.sym, sub: `${f2(r.pchg)}%`,
       color: heat(r.pchg ?? 0), tip: `<b>${esc(r.sym)}</b> ${esc(r.name || "")}<br>${f2(r.pchg)}%${r.rf != null ? ` · R.FAC ${f2(r.rf)}` : ""}${col && k !== "pchg" && k !== "rf" ? ` · ${col.label} ${f2(v)}` : ""}` };
   });
   treemap(el, items, t.o.tall ? 620 : 400);
@@ -306,7 +325,7 @@ function heat(p, max = 3) {
 }
 function treemap(el, items, height) {
   const W = el.clientWidth || 800; el.style.height = height + "px";
-  el.innerHTML = squarify(items, 0, 0, W, height).map(t => `<div class="t" style="left:${t.x}px;top:${t.y}px;width:${t.w}px;height:${t.h}px;background:${t.color}" data-tip="${esc(t.tip || t.label)}">
+  el.innerHTML = squarify(items, 0, 0, W, height).map(t => `<div class="t${t.sym ? " clk" : ""}"${t.sym ? ` data-sym="${esc(t.sym)}"` : ""} style="left:${t.x}px;top:${t.y}px;width:${t.w}px;height:${t.h}px;background:${t.color}" data-tip="${esc(t.tip || t.label)}">
       ${t.w > 44 && t.h > 20 ? `<span>${esc(t.label)}</span>` : ""}${t.w > 60 && t.h > 38 && t.sub ? `<small>${esc(t.sub)}</small>` : ""}</div>`).join("");
 }
 
@@ -440,7 +459,7 @@ PAGES.insiderStrategy = {
     for (const [id, rows] of [["sp5", d.spike5], ["sp10", d.spike10]]) {
       const el = document.getElementById(id);
       if (!rows.length) { el.innerHTML = `<div class="empty">No momentum spikes in the last candles</div>`; continue; }
-      treemap(el, rows.map(r => ({ w: r.spike, label: r.sym, sub: `${f2(r.move)}% · ${r.spike}x`, color: heat(r.move, 1.2),
+      treemap(el, rows.map(r => ({ w: r.spike, sym: r.sym, label: r.sym, sub: `${f2(r.move)}% · ${r.spike}x`, color: heat(r.move, 1.2),
         tip: `<b>${r.sym}</b> ${esc(r.name)}<br>move ${f2(r.move)}% · spike ${r.spike}x · day ${f2(r.pchg)}% · ${r.time}` })), 250);
     }
   },
@@ -473,7 +492,7 @@ PAGES.sectorScope = {
       el.innerHTML = blocks.map(b => {
         const inner = squarify(b.s.stocks.map(r => ({ w: Math.max(r.rf, 0.05), r })), 0, 0, b.w - 4, b.h - 4);
         return `<div class="sec" style="left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px"><span class="sec-l">${b.s.sector} ${f2(b.s.score)}%</span>
-          ${inner.map(t => `<div class="t" style="left:${t.x}px;top:${t.y}px;width:${t.w}px;height:${t.h}px;background:${heat(t.r.pchg)}" data-tip="<b>${t.r.sym}</b> ${esc(t.r.name)}<br>${f2(t.r.pchg)}% · R.FAC ${f2(t.r.rf)}">
+          ${inner.map(t => `<div class="t clk" data-sym="${esc(t.r.sym)}" style="left:${t.x}px;top:${t.y}px;width:${t.w}px;height:${t.h}px;background:${heat(t.r.pchg)}" data-tip="<b>${t.r.sym}</b> ${esc(t.r.name)}<br>${f2(t.r.pchg)}% · R.FAC ${f2(t.r.rf)}">
             ${t.w > 46 && t.h > 22 ? t.r.sym : ""}${t.w > 56 && t.h > 38 ? `<small>${f2(t.r.pchg)}%</small>` : ""}</div>`).join("")}</div>`;
       }).join("");
     } else {
@@ -593,7 +612,7 @@ PAGES.optionApex = {
       <div style="text-align:center">${gaugeSVG(d.pcr.x, d.pcr.label)}<b>PCR Dial</b> <span class="mut">${d.pcr.start ?? "—"} → ${d.pcr.value ?? "—"}</span></div>
       <div class="note" style="grid-column:1/-1">Flow bars: ${esc(d.flux_source)} (OI refreshes every 3 minutes).</div>`;
     const mf = $("#mflux");
-    if (d.money_flux.length) treemap(mf, d.money_flux.map(t => ({ w: Math.max(t.rf, 0.05), label: t.sym, sub: f2(t.pchg) + "%", color: heat(t.pchg), tip: `<b>${t.sym}</b> ${f2(t.pchg)}% · R.FAC ${f2(t.rf)}` })), 330);
+    if (d.money_flux.length) treemap(mf, d.money_flux.map(t => ({ w: Math.max(t.rf, 0.05), sym: t.sym, label: t.sym, sub: f2(t.pchg) + "%", color: heat(t.pchg), tip: `<b>${t.sym}</b> ${f2(t.pchg)}% · R.FAC ${f2(t.rf)}` })), 330);
     else mf.innerHTML = `<div class="empty">No constituent list for ${st.index}</div>`;
   },
 };
@@ -785,4 +804,7 @@ async function header() {
   } catch {}
 }
 setInterval(() => { $("#clock").textContent = new Date().toLocaleTimeString("en-IN", { hour12: false }); }, 1000);
+(() => { const sel = $("#chartprov"); if (!sel) return;
+  sel.innerHTML = Object.entries(CHART_PROVIDERS).map(([k, l]) => `<option value="${k}">${l}</option>`).join("");
+  sel.value = chartProvider(); sel.onchange = () => { store.set("chart_provider", sel.value); route(); }; })();
 setInterval(header, 15000); header(); route();
