@@ -100,57 +100,170 @@ document.addEventListener("mousemove", e => {
   tip.style.left = x + "px"; tip.style.top = (e.clientY + 14) + "px";
 });
 
-/* ───────────── table widget ───────────── */
-const TSTATE = {};
+/* ───────────── table widget (Deadly Stocks semantics) ─────────────
+   Sorting follows TF's own bundle (calib/tf_bundle 8112 + 84535):
+   · click the active column → flip desc⇄asc; click a new column → desc (SYMBOL → asc)
+   · numbers compare numerically, numeric strings are parsed, "HH:MM" / "YYYY-MM-DD HH:MM" as time
+   · ties always break on SYMBOL A→Z
+   · the sort is re-applied every time data arrives, so rows re-arrange live.
+   Refreshes patch rows in place (no page rebuild): sort, filters, search focus and scroll survive,
+   moved rows glide to their new slot, changed numbers flash, new entries are highlighted. */
+const TSTATE = {}, TABLES = {};
+const HEAT_W = [5, 4, 3.3, 2.5, 2, 1.67, 1.43, 1.25, 1.11];           // TF heatmap rank weights
+const NUMRE = /^[+-]?(?:\d+\.?\d*|\.\d+)$/;
+function sortVal(v) {
+  if (typeof v === "number") return Number.isFinite(v) ? v : 0;
+  const t = String(v ?? "").trim();
+  let m = /^(\d{1,2})[:.](\d{2})(?::(\d{2}))?$/.exec(t);
+  if (m) return (60 * +m[1] + +m[2]) * 60 + +(m[3] || 0);
+  m = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?/.exec(t);
+  if (m) return Date.UTC(+m[1], m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0), +(m[6] || 0)) / 1e3;
+  return NUMRE.test(t) ? parseFloat(t) : t.toUpperCase();
+}
+function tfSort(rows, key, dir) {          // dir: -1 desc, 1 asc
+  return rows.sort((a, b) => {
+    const x = sortVal(key(a)), y = sortVal(key(b));
+    let c = 0;
+    if (typeof x === typeof y) c = x < y ? -1 : x > y ? 1 : 0;
+    else c = typeof x === "number" ? -1 : 1;                        // numbers before text
+    if (c) return c * dir;
+    const p = String(a.sym ?? "").toUpperCase(), q = String(b.sym ?? "").toUpperCase();
+    return p < q ? -1 : p > q ? 1 : 0;
+  });
+}
+const rowKey = r => `${r.sym}|${r.dtime ?? r.time ?? r.date ?? ""}`;
 function tableCard(id, o) {
-  // o: {title, info, rows, cols, sort:[key,dir], filters:{dir,sector}, sectors, search, tall}
-  const st = TSTATE[id] ||= { sort: o.sort || null, q: "", dir: "all", sector: "all", price: "All", volt: "all" };
+  // o: {title, info, rows, cols, sort:[key,dir], filters:{dir,sector,price,volt}, sectors, search, tall, heat}
+  const st = TSTATE[id] ||= { sort: o.sort || null, q: "", dir: "all", sector: "all", price: "All", volt: "all", view: "table" };
+  const t = TABLES[id] ||= { id };
+  t.st = st; t.o = o;
+  const sel = (f, opts) => `<select data-f="${f}">${opts}</select>`;
   const hdr = `<div class="chead"><div><h2>${o.title}${o.info ? ` <span class="info" data-tip="${esc(o.info)}">💡</span>` : ""}</h2>
       <div class="meta">${o.live !== false ? `<span class="live-b">LIVE</span>` : ""}
-      ${o.filters?.dir ? `<select data-f="dir"><option value="all">Neutral</option><option value="bull">Bullish</option><option value="bear">Bearish</option></select>` : ""}
-      ${o.filters?.price ? `<select data-f="price" title="Price (open)">${PRICE_BUCKETS.map(b => `<option>${b}</option>`).join("")}</select>` : ""}
-      ${o.filters?.volt ? `<select data-f="volt" title="Volatility"><option value="all">Neutral</option><option>High</option><option>Low</option></select>` : ""}
-      ${o.filters?.sector ? `<select data-f="sector"><option value="all">All</option>${(o.sectors || []).map(s => `<option>${s}</option>`).join("")}</select>` : ""}
-      <span class="pill" data-n></span></div></div>
-      ${o.search !== false ? `<div class="right"><input class="search" placeholder="Search symbol…" data-f="q"></div>` : ""}</div>`;
-  return { id, o, st, html: `<div class="card" id="${id}">${hdr}<div class="tw ${o.tall ? "tall" : ""}"></div></div>` };
+      ${o.filters?.dir ? sel("dir", `<option value="all">Neutral</option><option value="bull">Bullish</option><option value="bear">Bearish</option>`) : ""}
+      ${o.filters?.price ? sel("price", PRICE_BUCKETS.map(b => `<option>${b}</option>`).join("")) : ""}
+      ${o.filters?.volt ? sel("volt", `<option value="all">Neutral</option><option>High</option><option>Low</option>`) : ""}
+      ${o.filters?.sector ? `<select data-f="sector" data-sectors></select>` : ""}
+      <span class="pill" data-n></span><span class="upd" data-upd></span></div></div>
+      <div class="right">${o.search !== false ? `<input class="search" placeholder="Search symbol…" data-f="q">` : ""}
+      ${o.heat ? `<div class="vt"><button data-v="table" title="Table view">☰</button><button data-v="heat" title="Heatmap view">▦</button></div>` : ""}</div></div>`;
+  t.html = `<div class="card" id="${id}" data-live>${hdr}<div class="tw ${o.tall ? "tall" : ""}"></div><div class="tm hm" style="display:none"></div></div>`;
+  return t;
 }
 function mountTable(t) {
   const el = document.getElementById(t.id); if (!el) return;
   const { st } = t;
+  t.prev = null;                                                     // fresh DOM: no move/flash animation
   el.querySelectorAll("[data-f]").forEach(inp => {
+    if (inp.dataset.f === "sector") fillSectors(t, inp);
     inp.value = st[inp.dataset.f];
-    inp.oninput = () => { st[inp.dataset.f] = inp.value; renderRows(t); };
+    inp.oninput = () => { st[inp.dataset.f] = inp.value; renderRows(t, { quiet: 1 }); };
   });
+  el.querySelectorAll("[data-v]").forEach(b => b.onclick = () => { st.view = b.dataset.v; renderRows(t, { quiet: 1 }); });
+  renderRows(t, { quiet: 1 });
+}
+function fillSectors(t, inp) {
+  const secs = t.o.sectors || [], sig = secs.join("|");
+  if (inp.dataset.sig === sig) return;
+  inp.dataset.sig = sig;
+  inp.innerHTML = `<option value="all">All</option>${secs.map(s => `<option>${esc(s)}</option>`).join("")}`;
+  inp.value = t.st.sector;
+}
+// refresh path: new data into an existing card, rows re-sorted + animated
+function updateTable(t, rows, extra = {}) {
+  Object.assign(t.o, extra, { rows });
+  const el = document.getElementById(t.id); if (!el) return;
+  const s = el.querySelector("[data-sectors]"); if (s) fillSectors(t, s);
   renderRows(t);
 }
-function renderRows(t) {
-  const el = document.getElementById(t.id); if (!el) return;
+function viewRows(t) {
   const { o, st } = t;
   let rows = (o.rows || []).slice();
-  if (st.q) rows = rows.filter(r => (r.sym + " " + (r.name || "")).toUpperCase().includes(st.q.toUpperCase()));
+  if (st.q) { const q = st.q.toUpperCase();
+    rows = rows.filter(r => [r.sym, r.name, r.dtime, r.time, r.date, r.segment].some(x => x != null && String(x).toUpperCase().includes(q))); }
   if (st.dir !== "all") rows = rows.filter(r => r.sgn === st.dir);
   if (st.sector !== "all") rows = rows.filter(r => (r.groups || []).includes(st.sector));
   if (st.price && st.price !== "All") rows = rows.filter(r => inBucket(r.open, st.price));
   if (st.volt && st.volt !== "all") rows = rows.filter(r => r.volt === st.volt);
   if (st.sort) {
     const [k, d] = st.sort, col = o.cols.find(c => c.k === k), key = col?.sk || (r => r[k]);
-    rows.sort((a, b) => { const x = key(a), y = key(b); return (x > y ? 1 : x < y ? -1 : 0) * d; });
+    tfSort(rows, key, d);
   }
+  return rows;
+}
+function renderRows(t, { quiet } = {}) {
+  const el = document.getElementById(t.id); if (!el) return;
+  const { o, st } = t, rows = viewRows(t);
   el.querySelector("[data-n]").textContent = `${rows.length} stocks`;
+  const up = el.querySelector("[data-upd]");
+  if (up && !quiet) { up.textContent = "updated " + new Date().toLocaleTimeString("en-IN", { hour12: false }); up.classList.remove("pulse"); void up.offsetWidth; up.classList.add("pulse"); }
+  el.querySelectorAll("[data-v]").forEach(b => b.classList.toggle("on", b.dataset.v === st.view));
+  const tw = el.querySelector(".tw"), hm = el.querySelector(".hm");
+  const heat = o.heat && st.view === "heat";
+  tw.style.display = heat ? "none" : ""; hm.style.display = heat ? "" : "none";
+  if (heat) { drawHeat(t, hm, rows); t.prev = null; return; }
+
+  // snapshot old positions + values (for FLIP + flash)
+  const oldPos = {}, oldVal = t.prev || {};
+  tw.querySelectorAll("tbody tr[data-key]").forEach(tr => oldPos[tr.dataset.key] = tr.getBoundingClientRect().top);
+  const sortCol = st.sort && st.sort[0];
   const th = o.cols.map(c => {
-    const s = st.sort && st.sort[0] === c.k ? (st.sort[1] > 0 ? " ▴" : " ▾") : "";
-    return `<th class="${c.r ? "r" : ""}" data-k="${c.k}">${c.label}${s}</th>`;
+    const act = sortCol === c.k, dsc = act && st.sort[1] < 0, can = c.k !== "_";
+    return `<th class="${c.r ? "r" : ""}${act ? " act" : ""}${can ? "" : " ns"}" data-k="${c.k}" aria-sort="${act ? (dsc ? "descending" : "ascending") : "none"}">${c.label}${act ? `<i class="si">${dsc ? "▼" : "▲"}</i>` : can ? `<i class="si ghost-i">▲▼</i>` : ""}</th>`;
   }).join("");
-  const body = rows.length ? rows.map(r => `<tr>${o.cols.map(c => `<td class="${c.r ? "r" : ""}">${c.fmt ? c.fmt(r) : esc(r[c.k])}</td>`).join("")}</tr>`).join("")
-    : `<tr><td colspan="${o.cols.length}" class="empty">${o.empty || "No signals yet"}</td></tr>`;
-  const tw = el.querySelector(".tw"), top = tw.scrollTop;
+  const vals = {};
+  const body = rows.length ? rows.map(r => {
+    const key = rowKey(r); vals[key] = {};
+    const tds = o.cols.map(c => {
+      const raw = c.k === "_" ? null : (c.sk ? c.sk(r) : r[c.k]);
+      if (raw != null) vals[key][c.k] = raw;
+      let fl = "";
+      if (t.prev && oldVal[key] && typeof raw === "number" && typeof oldVal[key][c.k] === "number" && raw !== oldVal[key][c.k])
+        fl = raw > oldVal[key][c.k] ? " fl-up" : " fl-dn";
+      return `<td class="${c.r ? "r" : ""}${fl}">${c.fmt ? c.fmt(r) : esc(r[c.k])}</td>`;
+    }).join("");
+    const isNew = t.prev && !oldVal[key];
+    return `<tr data-key="${esc(key)}" class="${isNew ? "is-new" : ""}">${tds}</tr>`;
+  }).join("") : `<tr><td colspan="${o.cols.length}" class="empty">${o.empty || "Waiting on session prints — signals fill as the tape builds."}</td></tr>`;
+  const top = tw.scrollTop;
   tw.innerHTML = `<table><thead><tr>${th}</tr></thead><tbody>${body}</tbody></table>`;
   tw.scrollTop = top;
+  t.prev = vals;
+
+  // FLIP: rows that changed rank slide from their old slot to the new one
+  if (!quiet && Object.keys(oldPos).length) {
+    const moved = [];
+    tw.querySelectorAll("tbody tr[data-key]").forEach(tr => {
+      const o0 = oldPos[tr.dataset.key]; if (o0 == null) return;
+      const dy = o0 - tr.getBoundingClientRect().top;
+      if (Math.abs(dy) > 1) { tr.style.transform = `translateY(${dy}px)`; tr.style.transition = "none"; moved.push(tr); }
+    });
+    if (moved.length) requestAnimationFrame(() => requestAnimationFrame(() => moved.forEach(tr => {
+      tr.style.transition = "transform .6s cubic-bezier(.2,.8,.2,1)"; tr.style.transform = ""; })));
+  }
   tw.querySelectorAll("th").forEach(h => h.onclick = () => {
     const k = h.dataset.k; if (k === "_") return;
-    st.sort = st.sort && st.sort[0] === k ? [k, -st.sort[1]] : [k, -1]; renderRows(t);
+    st.sort = st.sort && st.sort[0] === k ? [k, -st.sort[1]] : [k, k === "sym" ? 1 : -1];
+    t.prev = null; renderRows(t, { quiet: 1 });
   });
+}
+// TF heatmap: tiles in table order (top 50), size = |sort value|² × rank weight, colour = % change
+function drawHeat(t, el, rows) {
+  const k = t.st.sort?.[0], col = t.o.cols.find(c => c.k === k), key = col?.sk || (r => r[k]);
+  const n = Math.min(rows.length, 50);
+  if (!n) { el.style.height = "auto"; el.innerHTML = `<div class="empty">Heatmap fills once session prints arrive.</div>`; return; }
+  const items = rows.slice(0, 50).map((r, i) => {
+    const v = Number(key(r)), base = Number.isFinite(v) && k !== "sym" ? Math.abs(v) : (n - i);
+    return { w: Math.max(Math.pow(base || Math.abs(r.pchg) || .1, 2) * (HEAT_W[i] ?? 1), .01), label: r.sym, sub: `${f2(r.pchg)}%`,
+      color: heat(r.pchg ?? 0), tip: `<b>${esc(r.sym)}</b> ${esc(r.name || "")}<br>${f2(r.pchg)}%${r.rf != null ? ` · R.FAC ${f2(r.rf)}` : ""}${col && k !== "pchg" && k !== "rf" ? ` · ${col.label} ${f2(v)}` : ""}` };
+  });
+  treemap(el, items, t.o.tall ? 620 : 400);
+}
+// One call for table-heavy pages: first load builds the DOM, refreshes only patch rows.
+function paint(v, tables, html, refresh, rowsOf) {
+  const alive = refresh && tables.every(t => document.getElementById(t.id));
+  if (alive) { tables.forEach(t => updateTable(t, rowsOf ? rowsOf(t) : t.o.rows)); return true; }
+  v.innerHTML = html(); tables.forEach(mountTable); return false;
 }
 // Intraday Boost price buckets, applied to the day's open
 const PRICE_BUCKETS = ["All", "100 - 1K", "1K - 1.5K", "1.5K - 2K", "2K - 3K", "3K - 5K", "5K - Beyond"];
@@ -282,10 +395,11 @@ const TIP = {
 
 PAGES.marketPulse = {
   every: 10000,
-  async render(v) {
+  async render(v, refresh) {
     const d = await api("market_pulse");
     const secs = d.sectors || [];
-    const F = { sector: 1 }, sp = { sectors: secs };
+    const F = { sector: 1 }, sp = { sectors: secs, heat: 1 };
+    (d.breakout_beacon || []).forEach(r => r.sgn_abs = Math.abs(r.sgn_pct));
     const tb = [
       tableCard("bb", { title: "Breakout Beacon", info: TIP.bb, rows: d.breakout_beacon, sort: ["sgn_abs", -1], filters: { dir: 1, sector: 1 }, ...sp,
         cols: [C.sgn, C.sym, C.act, C.pct, { k: "sgn_abs", label: "SGN %", r: 1, sk: r => Math.abs(r.sgn_pct), fmt: r => `<b class="num ${cls(r.sgn_pct)}">${f2(r.sgn_pct)}</b>` }, C.txt("time", "TIME")], empty: "Needs today's 5-min candles — loads a few minutes after start" }),
@@ -297,16 +411,14 @@ PAGES.marketPulse = {
       tableCard("tlo", { title: "Top Losers", info: TIP.tlo, rows: d.losers, sort: ["pchg", 1], filters: F, ...sp, cols: [C.sym, C.act, C.pct, C.rf] }),
       tableCard("hp", { title: "High Power Stocks", info: TIP.hp, rows: d.high_power, sort: ["to", -1], filters: F, ...sp, cols: [C.sym, C.act, C.pct, C.num("to", "T.O.")] }),
     ];
-    tb[0].o.rows.forEach(r => r.sgn_abs = Math.abs(r.sgn_pct));
-    v.innerHTML = `<div class="tabs">${tb.map(t => `<button class="ghost" onclick="document.getElementById('${t.id}').scrollIntoView({behavior:'smooth'})">${t.o.title}</button>`).join("")}</div>
-      <div class="grid g2">${tb.map(t => t.html).join("")}</div>`;
-    tb.forEach(mountTable);
+    paint(v, tb, () => `<div class="tabs">${tb.map(t => `<button class="ghost" onclick="document.getElementById('${t.id}').scrollIntoView({behavior:'smooth'})">${t.o.title}</button>`).join("")}</div>
+      <div class="grid g2">${tb.map(t => t.html).join("")}</div>`, refresh);
   },
 };
 
 PAGES.insiderStrategy = {
   every: 30000,
-  async render(v) {
+  async render(v, refresh) {
     const d = await api("insider");
     const sp = { sectors: d.sectors || [] };
     const ev = (id, title, info, rows, extra = []) => tableCard(id, { title, info, rows, sort: ["dtime", -1], filters: { dir: 1, sector: 1 }, ...sp,
@@ -322,29 +434,33 @@ PAGES.insiderStrategy = {
       ev("ssr", "Sniper Swing Reversal", TIP.sn, d.sniper),
     ];
     const spike = (id, t) => `<div class="card"><div class="chead"><div><h2>${t} <span class="info" data-tip="${esc(TIP.sp)}">💡</span></h2><div class="meta"><span class="live-b">LIVE</span></div></div></div><div class="tm" id="${id}"></div></div>`;
-    v.innerHTML = `${spike("sp5", "5 MIN MOMENTUM SPIKE")}<div style="height:16px"></div>${spike("sp10", "10 MIN MOMENTUM SPIKE")}
+    paint(v, tb, () => `${spike("sp5", "5 MIN MOMENTUM SPIKE")}<div style="height:16px"></div>${spike("sp10", "10 MIN MOMENTUM SPIKE")}
       <div class="tabs" style="margin-top:18px">${tb.map(t => `<button class="ghost" onclick="document.getElementById('${t.id}').scrollIntoView({behavior:'smooth'})">${t.o.title}</button>`).join("")}</div>
-      <div class="grid g2">${tb.map(t => t.html).join("")}</div>`;
+      <div class="grid g2">${tb.map(t => t.html).join("")}</div>`, refresh);
     for (const [id, rows] of [["sp5", d.spike5], ["sp10", d.spike10]]) {
       const el = document.getElementById(id);
       if (!rows.length) { el.innerHTML = `<div class="empty">No momentum spikes in the last candles</div>`; continue; }
       treemap(el, rows.map(r => ({ w: r.spike, label: r.sym, sub: `${f2(r.move)}% · ${r.spike}x`, color: heat(r.move, 1.2),
         tip: `<b>${r.sym}</b> ${esc(r.name)}<br>move ${f2(r.move)}% · spike ${r.spike}x · day ${f2(r.pchg)}% · ${r.time}` })), 250);
     }
-    tb.forEach(mountTable);
   },
 };
 
 PAGES.sectorScope = {
   every: 10000,
   mode: "heatmap",
-  async render(v) {
+  async render(v, refresh) {
     const d = await api("sector_scope"), me = PAGES.sectorScope;
+    if (refresh && me.mode === "detail" && me.tb && me.tb.every(t => document.getElementById(t.id))) {
+      const by = Object.fromEntries(d.sectors.map(s => ["sec_" + s.sector.replace(/\W/g, ""), s]));
+      me.tb.forEach(t => { const s = by[t.id]; if (s) updateTable(t, s.stocks); });
+      return;
+    }
     v.innerHTML = `<div class="row" style="margin-bottom:12px"><span class="live-b">LIVE</span> <span class="info" data-tip="${esc(TIP.ss)}">💡</span>
         <button class="ghost ${me.mode === "heatmap" ? "on" : ""}" id="m1">Heatmap</button><button class="ghost ${me.mode === "detail" ? "on" : ""}" id="m2">Detail View</button>
         <span class="note">Sector groups. Daily sector score = the group's index % change (Upstox). Tile size = R.FAC.</span></div>
       <div id="ss"></div>`;
-    $("#m1").onclick = () => { me.mode = "heatmap"; me.render(v); };
+    $("#m1").onclick = () => { me.mode = "heatmap"; me.tb = null; me.render(v); };
     $("#m2").onclick = () => { me.mode = "detail"; me.render(v); };
     const ss = $("#ss");
     if (me.mode === "heatmap") {
@@ -365,6 +481,7 @@ PAGES.sectorScope = {
         title: `${s.sector} <span class="pill">${s.down} stocks (${f2(s.down / s.n * 100)}% Down) · ${s.up} stocks (${f2(s.up / s.n * 100)}% Up)</span>`,
         rows: s.stocks, sort: ["rf", -1], filters: { dir: 1 }, info: `Score ${f2(s.score)}%`,
         cols: [C.sym, C.act, C.num("prev", "PRE C"), C.pct, C.rf, C.sgn] }));
+      me.tb = tb;
       ss.innerHTML = `<div class="grid g2">${tb.map(t => t.html).join("")}</div>`;
       tb.forEach(mountTable);
     }
@@ -373,7 +490,7 @@ PAGES.sectorScope = {
 
 PAGES.swingSpectrum = {
   every: 60000, st: { scan: "highest_delivery", segment: "fno" },
-  async render(v) {
+  async render(v, refresh) {
     const st = this.st, d = await api(`swing?scan=${st.scan}&segment=${st.segment}`);
     const sp = { sectors: d.sectors || [] };
     const sw = (id, title, info, rows, withSgn = true) => tableCard(id, { title, info, rows: rows || [], sort: ["date", -1], filters: { dir: withSgn ? 1 : 0, sector: 1 }, ...sp,
@@ -387,6 +504,7 @@ PAGES.swingSpectrum = {
         cols: [C.sym, C.act, C.num("volume", "VOLUME", 0), C.num("avg_delivery_pct", "AVG. DEL %"), C.num("delivery_pct", "DELIVERY %"), ...(spike ? [C.num("increase_pct", "INCREASE %")] : []), C.txt("date", "DATE")], empty: "Bhavcopy not available yet" }),
     ];
     const ww = d.weekly || [];
+    if (refresh && tb.every(t => document.getElementById(t.id))) { tb.forEach(t => updateTable(t, t.o.rows)); return; }
     v.innerHTML = `<div class="card row" style="margin-bottom:14px"><b>Delivery Scanner</b>
         <label class="mut">Scan type <select id="dl_s"><option value="highest_delivery">Highest Delivery</option><option value="delivery_spike">Delivery Spike</option></select></label>
         <label class="mut">Segment <select id="dl_g"><option value="fno">F&amp;O</option><option value="n500">Nifty500</option></select></label></div>
@@ -544,13 +662,12 @@ PAGES.fiiDii = {
 
 PAGES.watchlist = {
   every: 10000,
-  async render(v) {
+  async render(v, refresh) {
     const w = wl();
     const d = w.length ? await api("quotes?syms=" + encodeURIComponent(w.join(","))) : [];
     const tb = tableCard("wl", { title: "Watchlist", rows: d, sort: ["pchg", -1], search: false,
       cols: [C.sym, C.act, C.num("ltp", "LTP"), C.num("prev", "PREV"), C.num("high", "HIGH"), C.num("low", "LOW"), C.pct, C.rf, C.sgn], empty: "Star ☆ any stock in a scanner, or add one above" });
-    v.innerHTML = `<div class="card row" style="margin-bottom:14px"><input id="wq" placeholder="Add symbol (e.g. RELIANCE)" style="width:260px"><div id="wres" class="row"></div></div>${tb.html}`;
-    mountTable(tb);
+    if (paint(v, [tb], () => `<div class="card row" style="margin-bottom:14px"><input id="wq" placeholder="Add symbol (e.g. RELIANCE)" style="width:260px"><div id="wres" class="row"></div></div>${tb.html}`, refresh)) return;
     $("#wq").oninput = async e => {
       const q = e.target.value; if (q.length < 2) { $("#wres").innerHTML = ""; return; }
       const r = await api("search?q=" + encodeURIComponent(q));
@@ -643,9 +760,20 @@ async function route() {
   const v = $("#view");
   if (curRoute !== r) { v.innerHTML = `<div class="empty">Loading…</div>`; curRoute = r; }
   const go = async (refresh) => { try { await page.render(v, refresh); } catch (e) { console.error(e); if (!refresh) v.innerHTML = `<div class="card empty">Could not load: ${esc(e.message)}. Is the server running?</div>`; } };
-  await go(false);
-  if (page.every) timer = setInterval(() => { if (!document.hidden && !document.activeElement?.matches("input,select")) go(true); }, page.every);
+  let last = Date.now(), busy = false;
+  const tick = async () => {
+    const ae = document.activeElement;
+    if (busy || document.hidden || (ae?.matches("input,select") && !ae.closest("[data-live]"))) return;
+    busy = true; last = Date.now();
+    try { await go(true); } finally { busy = false; }
+  };
+  REFRESH = () => { if (curRoute === r && page.every && Date.now() - last >= 15000) tick(); };
+  await go(false); last = Date.now();
+  if (page.every) timer = setInterval(tick, page.every);
 }
+let REFRESH = () => {};
+for (const [tgt, ev] of [[document, "visibilitychange"], [window, "focus"], [window, "pageshow"], [window, "online"]])
+  tgt.addEventListener(ev, () => { if (document.visibilityState === "visible") REFRESH(); });
 addEventListener("hashchange", route);
 
 async function header() {
