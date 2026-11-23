@@ -127,3 +127,27 @@ tr:hover td{background:rgba(232,238,247,.025)}
   .burger{display:block}.g2,.g3,.g4{grid-template-columns:1fr}.ticker{display:none}
   #view{padding:14px 16px}
 }
+
+/* ── live tables: TF-style sort headers, live re-ordering, value flashes ── */
+th .si{font-style:normal;font-size:9px;margin-left:5px;color:var(--acc2,#4b8ef7)}
+th .si.ghost-i{color:var(--mut);opacity:0;letter-spacing:-2px;transition:opacity .15s}
+th:hover .si.ghost-i{opacity:.55}
+th.act{color:#e8eef7}
+th.ns{cursor:default}
+th:not(.ns):hover{color:#e8eef7}
+tbody tr{will-change:transform;position:relative}
+td.fl-up{animation:flUp 1.6s ease-out}
+td.fl-dn{animation:flDn 1.6s ease-out}
+@keyframes flUp{0%{background:rgba(62,207,142,.38)}100%{background:transparent}}
+@keyframes flDn{0%{background:rgba(240,113,120,.38)}100%{background:transparent}}
+tr.is-new td{animation:isNew 3s ease-out}
+tr.is-new td:first-child{box-shadow:inset 3px 0 0 #4b8ef7}
+@keyframes isNew{0%{background:rgba(75,142,247,.28)}100%{background:transparent}}
+.upd{font-size:10px;color:var(--mut);font-family:"Geist Mono",monospace}
+.upd.pulse{animation:updP 1.2s ease-out}
+@keyframes updP{0%{color:#3ecf8e}100%{color:var(--mut)}}
+.vt{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.vt button{background:transparent;border:0;color:var(--mut);padding:5px 9px;cursor:pointer;font-size:13px}
+.vt button.on{background:rgba(75,142,247,.18);color:#e8eef7}
+.hm{margin-top:4px}
+@media (prefers-reduced-motion:reduce){tbody tr{transition:none!important}td.fl-up,td.fl-dn,tr.is-new td{animation:none}}
