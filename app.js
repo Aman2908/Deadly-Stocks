@@ -419,6 +419,10 @@ PAGES.marketPulse = {
     const secs = d.sectors || [];
     const F = { sector: 1 }, sp = { sectors: secs, heat: 1 };
     (d.breakout_beacon || []).forEach(r => r.sgn_abs = Math.abs(r.sgn_pct));
+    // TF list sizes (checked live 2026-11-23): Intraday Boost = top 80 by R.FAC, High Power = top 50 by turnover;
+    // TF's filters then run client-side on those lists.
+    d.intraday_boost = (d.intraday_boost || []).slice().sort((a, b) => (b.rf ?? -1e9) - (a.rf ?? -1e9)).slice(0, 80);
+    d.high_power = (d.high_power || []).slice(0, 50);
     const tb = [
       tableCard("bb", { title: "Breakout Beacon", info: TIP.bb, rows: d.breakout_beacon, sort: ["sgn_abs", -1], filters: { dir: 1, sector: 1 }, ...sp,
         cols: [C.sgn, C.sym, C.act, C.pct, { k: "sgn_abs", label: "SGN %", r: 1, sk: r => Math.abs(r.sgn_pct), fmt: r => `<b class="num ${cls(r.sgn_pct)}">${f2(r.sgn_pct)}</b>` }, C.txt("time", "TIME")], empty: "Needs today's 5-min candles — loads a few minutes after start" }),
