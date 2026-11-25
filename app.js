@@ -469,45 +469,46 @@ PAGES.insiderStrategy = {
   },
 };
 
+// TF Sector Scope (bundle option read live 2026-11-25): ECharts treemap of ALL 15 groups.
+// Group box size = |daily sector score|, tile size = |% change|; colour value per sibling set =
+// sign·(40 + 60·|v| / largest |v| of the same sign), mapped onto TF's 5-stop palette over −100…100.
+const SS_PAL = [[-100, [176, 42, 53]], [-50, [224, 82, 82]], [0, [91, 101, 115]], [50, [34, 168, 90]], [100, [14, 143, 74]]];
+function ssColor(v, sibs) {
+  const mx = Math.max(1e-9, ...sibs.filter(x => Math.sign(x) === Math.sign(v)).map(Math.abs));
+  const s = v === 0 ? 0 : Math.sign(v) * (40 + 60 * Math.abs(v) / mx);
+  for (let k = 1; k < SS_PAL.length; k++) {
+    const [x0, c0] = SS_PAL[k - 1], [x1, c1] = SS_PAL[k];
+    if (s <= x1) { const t = (s - x0) / (x1 - x0); return `rgb(${c0.map((c, q) => Math.round(c + (c1[q] - c) * t)).join(",")})`; }
+  }
+  return "rgb(14,143,74)";
+}
 PAGES.sectorScope = {
   every: 10000,
-  mode: "heatmap",
   async render(v, refresh) {
-    const d = await api("sector_scope"), me = PAGES.sectorScope;
-    if (refresh && me.mode === "detail" && me.tb && me.tb.every(t => document.getElementById(t.id))) {
-      const by = Object.fromEntries(d.sectors.map(s => ["sec_" + s.sector.replace(/\W/g, ""), s]));
-      me.tb.forEach(t => { const s = by[t.id]; if (s) updateTable(t, s.stocks); });
-      return;
-    }
-    v.innerHTML = `<div class="row" style="margin-bottom:12px"><span class="live-b">LIVE</span> <span class="info" data-tip="${esc(TIP.ss)}">💡</span>
-        <button class="ghost ${me.mode === "heatmap" ? "on" : ""}" id="m1">Heatmap</button><button class="ghost ${me.mode === "detail" ? "on" : ""}" id="m2">Detail View</button>
-        <span class="note">Sector groups. Daily sector score = the group's index % change (Upstox). Tile size = R.FAC.</span></div>
-      <div id="ss"></div>`;
-    $("#m1").onclick = () => { me.mode = "heatmap"; me.tb = null; me.render(v); };
-    $("#m2").onclick = () => { me.mode = "detail"; me.render(v); };
-    const ss = $("#ss");
-    if (me.mode === "heatmap") {
-      const secs = d.sectors.filter(s => !["Nifty 50", "SENSEX", "BANK", "FIN SERVICE", "NIFTY MID SELECT"].includes(s.sector));
-      ss.innerHTML = `<div class="card"><div class="tm" id="sectm"></div></div>
-        <div class="card" style="margin-top:16px"><h3>Daily sector score <span class="pill act">ACTIVE</span></h3>${barsSVG(d.sectors.map(s => s.score), d.sectors.map(s => s.sector), { h: 170, color: x => x >= 0 ? "#3ecf8e" : "#f07178" })}
-        <div class="row" style="justify-content:space-around;font-size:10px;color:var(--mut)">${d.sectors.map(s => `<span>${s.sector}</span>`).join("")}</div></div>`;
-      const el = $("#sectm"), W = el.clientWidth, H = 460; el.style.height = H + "px"; el.style.position = "relative";
-      const blocks = squarify(secs.map(s => ({ w: s.stocks.reduce((a, r) => a + Math.max(r.rf, 0.05), 0), s })), 0, 0, W, H);
-      el.innerHTML = blocks.map(b => {
-        const inner = squarify(b.s.stocks.map(r => ({ w: Math.max(r.rf, 0.05), r })), 0, 0, b.w - 4, b.h - 4);
-        return `<div class="sec" style="left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px"><span class="sec-l">${b.s.sector} ${f2(b.s.score)}%</span>
-          ${inner.map(t => `<div class="t clk" data-sym="${esc(t.r.sym)}" style="left:${t.x}px;top:${t.y}px;width:${t.w}px;height:${t.h}px;background:${heat(t.r.pchg)}" data-tip="<b>${t.r.sym}</b> ${esc(t.r.name)}<br>${f2(t.r.pchg)}% · R.FAC ${f2(t.r.rf)}">
-            ${t.w > 46 && t.h > 22 ? t.r.sym : ""}${t.w > 56 && t.h > 38 ? `<small>${f2(t.r.pchg)}%</small>` : ""}</div>`).join("")}</div>`;
-      }).join("");
-    } else {
-      const tb = d.sectors.map(s => tableCard("sec_" + s.sector.replace(/\W/g, ""), {
-        title: `${s.sector} <span class="pill">${s.down} stocks (${f2(s.down / s.n * 100)}% Down) · ${s.up} stocks (${f2(s.up / s.n * 100)}% Up)</span>`,
-        rows: s.stocks, sort: ["rf", -1], filters: { dir: 1 }, info: `Score ${f2(s.score)}%`,
-        cols: [C.sym, C.act, C.num("prev", "PRE C"), C.pct, C.rf, C.sgn] }));
-      me.tb = tb;
-      ss.innerHTML = `<div class="grid g2">${tb.map(t => t.html).join("")}</div>`;
-      tb.forEach(mountTable);
-    }
+    const d = await api("sector_scope"), me = PAGES.sectorScope, secs = d.sectors || [];
+    const tb = secs.map(s => tableCard("sec_" + s.sector.replace(/\W/g, ""), {
+      title: `${s.sector} <span class="pill">${s.down} stocks (${f2(s.down / s.n * 100)}% Down) · ${s.up} stocks (${f2(s.up / s.n * 100)}% Up)</span>`,
+      rows: s.stocks, sort: ["rf", -1], filters: { dir: 1 }, info: `Daily sector score ${f2(s.score)}`, heat: 1,
+      cols: [C.sym, C.act, C.num("prev", "PRE C"), C.pct, C.rf, C.sgn] }));
+    paint(v, tb, () => `<div class="row" style="margin-bottom:12px"><span class="live-b">LIVE</span> <span class="info" data-tip="${esc(TIP.ss)}">💡</span></div>
+      <div class="card"><div class="tm" id="sectm"></div></div>
+      <div class="card" style="margin-top:16px"><h3>Daily sector score <span class="pill act">ACTIVE</span></h3><div id="ssbars"></div></div>
+      <div class="grid g2" style="margin-top:16px">${tb.map(t => t.html).join("")}</div>`, refresh, t => (secs.find(s => "sec_" + s.sector.replace(/\W/g, "") === t.id) || {}).stocks || []);
+    // heatmap
+    const el = $("#sectm"); if (!el) return;
+    const W = el.clientWidth || 900, H = 460; el.style.height = H + "px"; el.style.position = "relative";
+    const gs = secs.map(s => s.score), blocks = squarify(secs.map(s => ({ w: Math.max(Math.abs(s.score), 0.01), s })), 0, 0, W, H);
+    el.innerHTML = blocks.map(b => {
+      const ps = b.s.stocks.map(r => r.pchg), top = b.h > 40 ? 16 : 0;
+      const inner = squarify(b.s.stocks.map(r => ({ w: Math.max(Math.abs(r.pchg), 0.01), r })), 0, top, b.w - 4, b.h - 4 - top);
+      return `<div class="sec" style="left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px;background:${ssColor(b.s.score, gs)}" data-tip="<b>${esc(b.s.sector)}</b><br>score ${f2(b.s.score)}">${top ? `<span class="sec-l">${esc(b.s.sector)}</span>` : ""}
+        ${inner.map(t => `<div class="t clk" data-sym="${esc(t.r.sym)}" style="left:${t.x}px;top:${t.y}px;width:${t.w}px;height:${t.h}px;background:${ssColor(t.r.pchg, ps)}" data-tip="<b>${t.r.sym}</b> ${esc(t.r.name)}<br>${f2(t.r.pchg)}% · R.FAC ${f2(t.r.rf)}">
+          ${t.w > 46 && t.h > 22 ? t.r.sym : ""}${t.w > 56 && t.h > 38 ? `<small>${f2(t.r.pchg)}%</small>` : ""}</div>`).join("")}</div>`;
+    }).join("");
+    // daily sector score: TF sorts the bars high → low
+    const srt = secs.slice().sort((a, b) => b.score - a.score);
+    $("#ssbars").innerHTML = `${barsSVG(srt.map(s => s.score), srt.map(s => s.sector), { h: 170, color: x => x >= 0 ? "#22a85a" : "#e05252" })}
+      <div class="row" style="justify-content:space-around;font-size:10px;color:var(--mut)">${srt.map(s => `<span>${s.sector}<br><b class="num ${cls(s.score)}">${f2(s.score)}</b></span>`).join("")}</div>`;
   },
 };
 
