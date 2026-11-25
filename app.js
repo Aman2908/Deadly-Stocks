@@ -22,14 +22,22 @@ function askKey() {
   d.querySelector("form").onsubmit = e => { e.preventDefault(); try { localStorage.setItem("tf_key", $("#keyin").value.trim()); } catch {} location.reload(); };
   document.body.appendChild(d);
 }
+// Each navigation bumps ROUTE_GEN; a response that lands after the user has moved to another page is
+// dropped (STALE) so a slow Sector Scope fetch can never paint over Market Pulse and vice versa.
+let ROUTE_GEN = 0; const STALE = new Error("stale");
 const api = async (p, retry = true) => {
+  const g = ROUTE_GEN, d = await api0(p, retry);
+  if (g !== ROUTE_GEN) throw STALE;
+  return d;
+};
+const api0 = async (p, retry = true) => {
   if (!REMOTE) { const r = await fetch("/api/" + p); return r.json(); }
   let k = ""; try { k = localStorage.getItem("tf_key") || ""; } catch {}
   if (!k) { askKey(); throw new Error("access key needed"); }
   let r;
   try { r = await fetch((await apiBase()) + "/api/" + p, { headers: { "X-TF-Key": k }, cache: "no-store" }); }
   catch (e) {                                   // dead tunnel -> the URL may have moved; re-read config once
-    if (retry) { await apiBase(true); return api(p, false); }
+    if (retry) { await apiBase(true); return api0(p, false); }
     throw new Error("backend offline (laptop asleep, or tunnel restarting — retry in ~2 min)");
   }
   if (r.status === 401) { try { localStorage.removeItem("tf_key"); } catch {} askKey(); throw new Error("wrong access key"); }
@@ -820,13 +828,13 @@ PAGES.status = {
 /* ───────────── router ───────────── */
 async function route() {
   const r = (location.hash.replace(/^#\/?/, "") || "home").split("?")[0];
-  const page = PAGES[r] || PAGES.home;
+  const page = PAGES[r] || PAGES.home, gen = ++ROUTE_GEN;
   document.body.classList.remove("nav-open");
   const [crumb, t] = titleOf(r); $("#crumb").textContent = crumb; $("#title").textContent = t;
   drawNav(r); clearInterval(timer);
   const v = $("#view");
   if (curRoute !== r) { v.innerHTML = `<div class="empty">Loading…</div>`; curRoute = r; }
-  const go = async (refresh) => { try { await page.render(v, refresh); } catch (e) { console.error(e); if (!refresh) v.innerHTML = `<div class="card empty">Could not load: ${esc(e.message)}. Is the server running?</div>`; } };
+  const go = async (refresh) => { if (gen !== ROUTE_GEN) return; try { await page.render(v, refresh); } catch (e) { if (e === STALE || gen !== ROUTE_GEN) return; console.error(e); if (!refresh) v.innerHTML = `<div class="card empty">Could not load: ${esc(e.message)}. Is the server running?</div>`; } };
   let last = Date.now(), busy = false;
   const tick = async () => {
     const ae = document.activeElement;
