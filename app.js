@@ -166,7 +166,7 @@ function tableCard(id, o) {
       <span class="pill" data-n></span><span class="upd" data-upd></span></div></div>
       <div class="right">${o.search !== false ? `<input class="search" placeholder="Search symbol…" data-f="q">` : ""}
       ${o.heat ? `<div class="vt"><button data-v="table" title="Table view">☰</button><button data-v="heat" title="Heatmap view">▦</button></div>` : ""}</div></div>`;
-  t.html = `<div class="card" id="${id}" data-live>${hdr}<div class="tw ${o.tall ? "tall" : ""}"></div><div class="tm hm" style="display:none"></div></div>`;
+  t.html = `<div class="card ${o.cls || ""}" id="${id}" data-live>${hdr}${o.sub ? `<div data-sub>${o.sub}</div>` : ""}<div class="tw ${o.tall ? "tall" : ""}"></div><div class="tm hm" style="display:none"></div></div>`;
   return t;
 }
 function mountTable(t) {
@@ -469,53 +469,89 @@ PAGES.insiderStrategy = {
   },
 };
 
-// TF Sector Scope (bundle option read live 2026-11-25): ECharts treemap of ALL 15 groups.
-// Group box size = |daily sector score|, tile size = |% change|; colour value per sibling set =
-// sign·(40 + 60·|v| / largest |v| of the same sign), mapped onto TF's 5-stop palette over −100…100.
+// TF Sector Scope — rebuilt from TF's own page code (chunk 1688, read 2026-11-25):
+//  • heatmap: groups in TF order, box = |daily score|, inside = the group's stocks sorted by R.FAC desc (top 50),
+//    tile = |% chg|; colour value = linearMap over siblings: v>0 → [0,max]→[40,100], v<0 → [min,0]→[−100,−40],
+//    palette #b02a35 #e05252 #5b6573 #22a85a #0e8f4a over −100…100; label = symbol only; click a group = zoom.
+//  • score bars: top 20 sorted high→low, value on the bar, click → that sector's table.
+//  • panels: breadth bar (majority first, 0% counts as up), top-3 positive / negative score panels highlighted,
+//    columns Symbol / Pre C / % / R.FAC / SGN (SGN = LTP vs open, '—' when neutral), default R.FAC desc.
 const SS_PAL = [[-100, [176, 42, 53]], [-50, [224, 82, 82]], [0, [91, 101, 115]], [50, [34, 168, 90]], [100, [14, 143, 74]]];
+function ssVal(v, sibs) {
+  const mx = Math.max(0, ...sibs), mn = Math.min(0, ...sibs);
+  return v > 0 ? 40 + 60 * Math.min(1, v / (mx || 1)) : v < 0 ? -40 - 60 * Math.min(1, v / (mn || -1)) : 0;
+}
 function ssColor(v, sibs) {
-  const mx = Math.max(1e-9, ...sibs.filter(x => Math.sign(x) === Math.sign(v)).map(Math.abs));
-  const s = v === 0 ? 0 : Math.sign(v) * (40 + 60 * Math.abs(v) / mx);
+  const s = ssVal(v, sibs);
   for (let k = 1; k < SS_PAL.length; k++) {
     const [x0, c0] = SS_PAL[k - 1], [x1, c1] = SS_PAL[k];
     if (s <= x1) { const t = (s - x0) / (x1 - x0); return `rgb(${c0.map((c, q) => Math.round(c + (c1[q] - c) * t)).join(",")})`; }
   }
   return "rgb(14,143,74)";
 }
-// label that fits its tile: font scales with tile size, hidden when too small to read
+const ssPct = v => (v > 0 ? "+" : "") + (Math.round(v * 100) / 100).toFixed(2) + "%";
 function ssLabel(t) {
-  if (t.h < 15 || t.w < 28) return "";
-  const fs = Math.max(9, Math.min(13, t.w / (t.r.sym.length * 0.68 + 1), t.h / 2.4));   // long names shrink, then ellipsis
-  const pct = t.h > fs * 3.2 && t.w > 44 ? `<span style="font-size:${(fs * 0.85).toFixed(1)}px;font-weight:500;opacity:.9">${f2(t.r.pchg)}%</span>` : "";
-  return `<span style="font-size:${fs.toFixed(1)}px">${t.r.sym}</span>${pct}`;
+  if (t.h < 14 || t.w < 24) return "";
+  const fs = Math.max(9, Math.min(12, t.w / (t.r.sym.length * 0.66 + 1)));
+  return `<span style="font-size:${fs.toFixed(1)}px">${esc(t.r.sym)}</span>`;
 }
+const ssId = g => "sec_" + g.replace(/\W/g, "");
 PAGES.sectorScope = {
-  every: 10000,
+  every: 10000, zoom: null,
   async render(v, refresh) {
     const d = await api("sector_scope"), me = PAGES.sectorScope, secs = d.sectors || [];
-    const tb = secs.map(s => tableCard("sec_" + s.sector.replace(/\W/g, ""), {
-      title: `${s.sector} <span class="pill">${s.down} stocks (${f2(s.down / s.n * 100)}% Down) · ${s.up} stocks (${f2(s.up / s.n * 100)}% Up)</span>`,
-      rows: s.stocks, sort: ["rf", -1], filters: { dir: 1 }, info: `Daily sector score ${f2(s.score)}`, heat: 1,
-      cols: [C.sym, C.act, C.num("prev", "PRE C"), C.pct, C.rf, C.sgn] }));
+    const pos = secs.filter(s => s.score > 0).sort((a, b) => b.score - a.score).slice(0, 3).map(s => s.sector);
+    const neg = secs.filter(s => s.score < 0).sort((a, b) => a.score - b.score).slice(0, 3).map(s => s.sector);
+    const breadth = s => {
+      const up = s.up, dn = s.down, n = up + dn || 1, lead = up >= dn, a = lead ? up : dn, b = lead ? dn : up;
+      return `<div class="ssb"><div class="ssb-track ${lead ? "dn" : "up"}"><div class="ssb-fill ${lead ? "up" : "dn"}" style="width:${(100 * a / n).toFixed(1)}%"></div></div>
+        <div class="ssb-l"><span class="${lead ? "up" : "dn"}">${a} stocks (${(100 * a / n).toFixed(2)}% ${lead ? "Up" : "Down"})</span>
+        <span class="${lead ? "dn" : "up"}">${b} stocks (${(100 * b / n).toFixed(2)}% ${lead ? "Down" : "Up"})</span></div></div>`;
+    };
+    const sgnTF = { k: "sgn", label: "SGN", fmt: r => r.sgn === "bull" || r.sgn === "bear" ? sgn(r.sgn) : `<span class="mut">—</span>` };
+    const tb = secs.map(s => tableCard(ssId(s.sector), {
+      title: esc(s.sector), info: TIP.ss, rows: s.stocks, sort: ["rf", -1], heat: 1, sub: breadth(s),
+      cls: pos.includes(s.sector) ? "ss-pos" : neg.includes(s.sector) ? "ss-neg" : "",
+      cols: [C.sym, C.act, C.num("prev", "PRE C"), C.pct, C.rf, sgnTF] }));
+    const alive = refresh && tb.every(t => document.getElementById(t.id));
     paint(v, tb, () => `<div class="row" style="margin-bottom:12px"><span class="live-b">LIVE</span> <span class="info" data-tip="${esc(TIP.ss)}">💡</span></div>
-      <div class="card"><div class="tm" id="sectm"></div></div>
+      <div class="card ss-hm"><button class="ghost ss-restore" title="Reset zoom (Esc)" style="display:none">⟲ All sectors</button><div class="tm" id="sectm"></div></div>
       <div class="card" style="margin-top:16px"><h3>Daily sector score <span class="pill act">ACTIVE</span></h3><div id="ssbars"></div></div>
-      <div class="grid g2" style="margin-top:16px">${tb.map(t => t.html).join("")}</div>`, refresh, t => (secs.find(s => "sec_" + s.sector.replace(/\W/g, "") === t.id) || {}).stocks || []);
-    // heatmap
-    const el = $("#sectm"); if (!el) return;
-    const W = el.clientWidth || 900, H = 460; el.style.height = H + "px"; el.style.position = "relative";
-    const gs = secs.map(s => s.score), blocks = squarify(secs.map(s => ({ w: Math.max(Math.abs(s.score), 0.01), s })), 0, 0, W, H);
+      <div class="grid g2" style="margin-top:16px">${tb.map(t => t.html).join("")}</div>`, refresh, t => (secs.find(s => ssId(s.sector) === t.id) || {}).stocks || []);
+    if (alive) tb.forEach(t => {                      // live refresh: breadth + highlight follow the data
+      const el = document.getElementById(t.id), s = secs.find(x => ssId(x.sector) === t.id); if (!el || !s) return;
+      el.classList.toggle("ss-pos", pos.includes(s.sector)); el.classList.toggle("ss-neg", neg.includes(s.sector));
+      const sub = el.querySelector("[data-sub]"); if (sub) sub.innerHTML = breadth(s);
+    });
+    me.draw(secs);
+    const srt = secs.slice().sort((a, b) => b.score - a.score || a.sector.localeCompare(b.sector)).slice(0, 20);
+    const mx = Math.max(0.01, ...srt.map(s => Math.abs(s.score))), H = 220, mid = 110, n = srt.length;
+    $("#ssbars").innerHTML = `<div class="ssbars" style="grid-template-columns:repeat(${n},minmax(0,1fr))">${srt.map(s => {
+      const h = Math.max(2, Math.abs(s.score) / mx * (mid - 22));
+      return `<div class="ssbar" data-sec="${esc(s.sector)}" title="${esc(s.sector)}: ${s.score.toFixed(2)}">
+        <div class="ssbar-plot" style="height:${H}px"><div class="ssbar-b ${s.score >= 0 ? "up" : "dn"}" style="${s.score >= 0 ? `bottom:${mid}px` : `top:${H - mid}px`};height:${h}px"></div>
+        <span class="ssbar-v" style="${s.score >= 0 ? `bottom:${mid + h + 3}px` : `top:${H - mid + h + 3}px`}">${s.score.toFixed(2)}</span></div>
+        <div class="ssbar-x">${esc(s.sector)}</div></div>`; }).join("")}</div>`;
+    document.querySelectorAll(".ssbar").forEach(b => b.onclick = () => document.getElementById(ssId(b.dataset.sec))?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  },
+  draw(secs) {
+    const me = this, el = $("#sectm"); if (!el) return;
+    me._secs = secs;
+    const show = me.zoom ? secs.filter(s => s.sector === me.zoom) : secs;
+    const W = el.clientWidth || 900, H = Math.max(420, Math.round(window.innerHeight * 0.75));
+    el.style.height = H + "px"; el.style.position = "relative";
+    const rb = el.parentElement.querySelector(".ss-restore"); rb.style.display = me.zoom ? "" : "none";
+    rb.onclick = () => { me.zoom = null; me.draw(me._secs); };
+    const blocks = squarify(show.map(s => ({ w: Math.max(Math.abs(s.score), 0.005), s })), 0, 0, W, H);
     el.innerHTML = blocks.map(b => {
-      const ps = b.s.stocks.map(r => r.pchg), top = b.h > 40 ? 16 : 0;
-      const inner = squarify(b.s.stocks.map(r => ({ w: Math.max(Math.abs(r.pchg), 0.01), r })), 0, top, b.w - 4, b.h - 4 - top);
-      return `<div class="sec" style="left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px;background:${ssColor(b.s.score, gs)}" data-tip="<b>${esc(b.s.sector)}</b><br>score ${f2(b.s.score)}">${top ? `<span class="sec-l">${esc(b.s.sector)}</span>` : ""}
-        ${inner.map(t => `<div class="t clk" data-sym="${esc(t.r.sym)}" style="left:${t.x}px;top:${t.y}px;width:${t.w}px;height:${t.h}px;background:${ssColor(t.r.pchg, ps)}" data-tip="<b>${t.r.sym}</b> ${esc(t.r.name)}<br>${f2(t.r.pchg)}% · R.FAC ${f2(t.r.rf)}">
-          ${ssLabel(t)}</div>`).join("")}</div>`;
+      const st = b.s.stocks.slice(0, 50), ps = st.map(r => r.pchg), top = 22;
+      const inner = squarify(st.map(r => ({ w: Math.max(Math.abs(r.pchg), 0.005), r })), 1, top, b.w - 2, b.h - top - 1);
+      return `<div class="ssg" data-g="${esc(b.s.sector)}" style="left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px">
+        <div class="ssg-h" title="${esc(b.s.sector)} · score ${ssPct(b.s.score)} — click to zoom">${b.w > 30 ? esc(b.s.sector) : ""}</div>
+        ${inner.map(t => `<div class="t clk" data-sym="${esc(t.r.sym)}" style="left:${t.x}px;top:${t.y}px;width:${t.w}px;height:${t.h}px;background:${ssColor(t.r.pchg, ps)}" data-tip="<b>${esc(t.r.sym)}</b><br>% chg: ${ssPct(t.r.pchg)}">${ssLabel(t)}</div>`).join("")}</div>`;
     }).join("");
-    // daily sector score: TF sorts the bars high → low
-    const srt = secs.slice().sort((a, b) => b.score - a.score);
-    $("#ssbars").innerHTML = `${barsSVG(srt.map(s => s.score), srt.map(s => s.sector), { h: 170, color: x => x >= 0 ? "#22a85a" : "#e05252" })}
-      <div style="display:grid;grid-template-columns:repeat(${srt.length},minmax(0,1fr));font-size:10px;color:var(--mut);text-align:center;gap:2px">${srt.map(s => `<span style="overflow-wrap:anywhere">${s.sector}<br><b class="num ${cls(s.score)}">${f2(s.score)}</b></span>`).join("")}</div>`;
+    el.querySelectorAll(".ssg-h").forEach(h => h.onclick = () => { me.zoom = me.zoom ? null : h.parentElement.dataset.g; me.draw(me._secs); });
+    if (!me._esc) { me._esc = 1; document.addEventListener("keydown", e => { if (e.key === "Escape" && me.zoom && $("#sectm")) { me.zoom = null; me.draw(me._secs); } }); }
   },
 };
 
