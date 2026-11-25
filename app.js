@@ -482,6 +482,13 @@ function ssColor(v, sibs) {
   }
   return "rgb(14,143,74)";
 }
+// label that fits its tile: font scales with tile size, hidden when too small to read
+function ssLabel(t) {
+  if (t.h < 15 || t.w < 28) return "";
+  const fs = Math.max(9, Math.min(13, t.w / (t.r.sym.length * 0.68 + 1), t.h / 2.4));   // long names shrink, then ellipsis
+  const pct = t.h > fs * 3.2 && t.w > 44 ? `<span style="font-size:${(fs * 0.85).toFixed(1)}px;font-weight:500;opacity:.9">${f2(t.r.pchg)}%</span>` : "";
+  return `<span style="font-size:${fs.toFixed(1)}px">${t.r.sym}</span>${pct}`;
+}
 PAGES.sectorScope = {
   every: 10000,
   async render(v, refresh) {
@@ -503,12 +510,12 @@ PAGES.sectorScope = {
       const inner = squarify(b.s.stocks.map(r => ({ w: Math.max(Math.abs(r.pchg), 0.01), r })), 0, top, b.w - 4, b.h - 4 - top);
       return `<div class="sec" style="left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px;background:${ssColor(b.s.score, gs)}" data-tip="<b>${esc(b.s.sector)}</b><br>score ${f2(b.s.score)}">${top ? `<span class="sec-l">${esc(b.s.sector)}</span>` : ""}
         ${inner.map(t => `<div class="t clk" data-sym="${esc(t.r.sym)}" style="left:${t.x}px;top:${t.y}px;width:${t.w}px;height:${t.h}px;background:${ssColor(t.r.pchg, ps)}" data-tip="<b>${t.r.sym}</b> ${esc(t.r.name)}<br>${f2(t.r.pchg)}% · R.FAC ${f2(t.r.rf)}">
-          ${t.w > 46 && t.h > 22 ? t.r.sym : ""}${t.w > 56 && t.h > 38 ? `<small>${f2(t.r.pchg)}%</small>` : ""}</div>`).join("")}</div>`;
+          ${ssLabel(t)}</div>`).join("")}</div>`;
     }).join("");
     // daily sector score: TF sorts the bars high → low
     const srt = secs.slice().sort((a, b) => b.score - a.score);
     $("#ssbars").innerHTML = `${barsSVG(srt.map(s => s.score), srt.map(s => s.sector), { h: 170, color: x => x >= 0 ? "#22a85a" : "#e05252" })}
-      <div class="row" style="justify-content:space-around;font-size:10px;color:var(--mut)">${srt.map(s => `<span>${s.sector}<br><b class="num ${cls(s.score)}">${f2(s.score)}</b></span>`).join("")}</div>`;
+      <div style="display:grid;grid-template-columns:repeat(${srt.length},minmax(0,1fr));font-size:10px;color:var(--mut);text-align:center;gap:2px">${srt.map(s => `<span style="overflow-wrap:anywhere">${s.sector}<br><b class="num ${cls(s.score)}">${f2(s.score)}</b></span>`).join("")}</div>`;
   },
 };
 
