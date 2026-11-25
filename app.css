@@ -198,3 +198,14 @@ td{padding:8px 6px}
 .ssbar-v{position:absolute;left:0;right:0;text-align:center;font-size:11px;font-weight:700;font-family:"Geist Mono",monospace}
 .ssbar-x{writing-mode:vertical-rl;transform:rotate(180deg);font-size:10px;font-weight:700;color:var(--mut);margin:6px auto 0;max-height:110px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ssbar:hover .ssbar-b{filter:brightness(1.15)}
+/* 11-25b: one-line card controls (filters · count · search · view toggle) + Market Pulse single "Updated" stamp */
+.chead>div:first-child{flex:1 1 auto;min-width:0}
+.chead .meta{flex-wrap:nowrap;min-width:0}
+.chead .meta select{flex:0 1 auto;min-width:64px;max-width:130px}
+.chead .meta input.search{flex:1 1 120px;width:auto;min-width:80px;max-width:180px;margin-left:auto}
+.chead .meta .vt{flex:0 0 auto}
+.chead .meta .pill{flex:0 0 auto}
+.mp-top{display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}
+.mp-top .tabs{margin:0;flex:1 1 auto}
+.mp-top .upd{font-size:12px;white-space:nowrap}
+@media (max-width:640px){.chead .meta{flex-wrap:wrap}.chead .meta input.search{flex-basis:100%;max-width:none;margin-left:0}}
