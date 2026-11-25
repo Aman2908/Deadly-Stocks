@@ -161,3 +161,17 @@ a.symlink:hover b{color:var(--acc2);text-decoration:underline}
 .chartpref{display:flex;align-items:center;gap:4px;font-size:12px;color:var(--mut)}
 .chartpref select{padding:3px 6px;font-size:12px}
 @media (max-width:820px){.chartpref{display:none}}
+
+/* 2026-11-25 layout fixes: tables never clip their right-hand columns, header stays on one line */
+.top h1{white-space:nowrap}
+.top>div:first-of-type{flex:0 0 auto}
+.ticker{flex:1 1 auto;min-width:0}
+.sym small{max-width:150px;white-space:nowrap}
+td{padding:8px 6px}
+.chip{min-width:52px;padding:4px 6px}
+@media (max-width:1280px){.g2{grid-template-columns:1fr}}
+/* sector-scope treemap labels sized to their tile */
+.tm .t span{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 3px}
+.tm .sec{border-radius:6px}
+.tm .sec-l{top:1px;font-size:10px}
+.top-right{flex:1 1 auto;min-width:0;justify-content:flex-end}.top-right>*:not(.ticker){flex:0 0 auto}
