@@ -171,9 +171,9 @@ function tableCard(id, o) {
       ${o.filters?.price ? sel("price", PRICE_BUCKETS.map(b => `<option>${b}</option>`).join("")) : ""}
       ${o.filters?.volt ? sel("volt", `<option value="all">Neutral</option><option>High</option><option>Low</option>`) : ""}
       ${o.filters?.sector ? `<select data-f="sector" data-sectors></select>` : ""}
-      <span class="pill" data-n></span><span class="upd" data-upd></span></div></div>
-      <div class="right">${o.search !== false ? `<input class="search" placeholder="Search symbol…" data-f="q">` : ""}
-      ${o.heat ? `<div class="vt"><button data-v="table" title="Table view">☰</button><button data-v="heat" title="Heatmap view">▦</button></div>` : ""}</div></div>`;
+      <span class="pill" data-n></span>${o.upd !== false ? `<span class="upd" data-upd></span>` : ""}
+      ${o.search !== false ? `<input class="search" placeholder="Search symbol…" data-f="q">` : ""}
+      ${o.heat ? `<div class="vt"><button data-v="table" title="Table view">☰</button><button data-v="heat" title="Heatmap view">▦</button></div>` : ""}</div></div></div>`;
   t.html = `<div class="card ${o.cls || ""}" id="${id}" data-live>${hdr}${o.sub ? `<div data-sub>${o.sub}</div>` : ""}<div class="tw ${o.tall ? "tall" : ""}"></div><div class="tm hm" style="display:none"></div></div>`;
   return t;
 }
@@ -425,7 +425,7 @@ PAGES.marketPulse = {
   async render(v, refresh) {
     const d = await api("market_pulse");
     const secs = d.sectors || [];
-    const F = { sector: 1 }, sp = { sectors: secs, heat: 1 };
+    const F = { sector: 1 }, sp = { sectors: secs, heat: 1, upd: false };
     (d.breakout_beacon || []).forEach(r => r.sgn_abs = Math.abs(r.sgn_pct));
     // TF list sizes (checked live 2026-11-23): Intraday Boost = top 80 by R.FAC, High Power = top 50 by turnover;
     // TF's filters then run client-side on those lists.
@@ -442,8 +442,11 @@ PAGES.marketPulse = {
       tableCard("tlo", { title: "Top Losers", info: TIP.tlo, rows: d.losers, sort: ["pchg", 1], filters: F, ...sp, cols: [C.sym, C.act, C.pct, C.rf] }),
       tableCard("hp", { title: "High Power Stocks", info: TIP.hp, rows: d.high_power, sort: ["to", -1], filters: F, ...sp, cols: [C.sym, C.act, C.pct, C.num("to", "T.O.")] }),
     ];
-    paint(v, tb, () => `<div class="tabs">${tb.map(t => `<button class="ghost" onclick="document.getElementById('${t.id}').scrollIntoView({behavior:'smooth'})">${t.o.title}</button>`).join("")}</div>
+    paint(v, tb, () => `<div class="mp-top"><div class="tabs">${tb.map(t => `<button class="ghost" onclick="document.getElementById('${t.id}').scrollIntoView({behavior:'smooth'})">${t.o.title}</button>`).join("")}</div>
+      <span class="live-b">LIVE</span><span class="upd" id="mp_upd"></span></div>
       <div class="grid g2">${tb.map(t => t.html).join("")}</div>`, refresh);
+    const up = document.getElementById("mp_upd");
+    if (up) { up.textContent = "Updated " + new Date().toLocaleTimeString("en-IN", { hour12: false }); up.classList.remove("pulse"); void up.offsetWidth; up.classList.add("pulse"); }
   },
 };
 
