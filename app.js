@@ -1,9 +1,5 @@
-/* Deadly Stocks — single-page UI. Data from the local engine (/api/*). */
 const $ = (s, el = document) => el.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-/* Served by the laptop itself -> same-origin /api. Served from GitHub Pages -> the backend
-   lives behind a Cloudflare tunnel whose URL changes; config.json (auto-updated by the
-   laptop) says where it is. Access key: ?k=<key> once, then remembered in localStorage. */
 const REMOTE = location.hostname.endsWith("github.io");
 (() => { const k = new URLSearchParams(location.search).get("k");
   if (k) { try { localStorage.setItem("tf_key", k); } catch {} history.replaceState(null, "", location.pathname + location.hash); } })();
@@ -22,8 +18,6 @@ function askKey() {
   d.querySelector("form").onsubmit = e => { e.preventDefault(); try { localStorage.setItem("tf_key", $("#keyin").value.trim()); } catch {} location.reload(); };
   document.body.appendChild(d);
 }
-// Each navigation bumps ROUTE_GEN; a response that lands after the user has moved to another page is
-// dropped (STALE) so a slow Sector Scope fetch can never paint over Market Pulse and vice versa.
 let ROUTE_GEN = 0; const STALE = new Error("stale");
 const api = async (p, retry = true) => {
   const g = ROUTE_GEN, d = await api0(p, retry);
@@ -36,7 +30,7 @@ const api0 = async (p, retry = true) => {
   if (!k) { askKey(); throw new Error("access key needed"); }
   let r;
   try { r = await fetch((await apiBase()) + "/api/" + p, { headers: { "X-TF-Key": k }, cache: "no-store" }); }
-  catch (e) {                                   // dead tunnel -> the URL may have moved; re-read config once
+  catch (e) {
     if (retry) { await apiBase(true); return api0(p, false); }
     throw new Error("backend offline (laptop asleep, or tunnel restarting — retry in ~2 min)");
   }
@@ -47,8 +41,6 @@ const store = {
   get(k, d) { try { return JSON.parse(localStorage.getItem("tf_" + k)) ?? d; } catch { return d; } },
   set(k, v) { try { localStorage.setItem("tf_" + k, JSON.stringify(v)); } catch {} },
 };
-
-/* ───────────── navigation ───────────── */
 const NAV = [
   { r: "home", t: "Home", ic: "▦", crumb: "OVERVIEW" },
   { g: "Stocks", ic: "♥", items: [
@@ -73,8 +65,6 @@ function titleOf(r) {
     for (const i of n.items || []) if (i.r === r) return [n.g === "Index" ? "INDEX" : "MARKETS", i.t]; }
   return ["", r];
 }
-
-/* ───────────── formatting ───────────── */
 const f2 = v => v == null || isNaN(v) ? "—" : Number(v).toFixed(2);
 const inr = (v, d = 2) => v == null || isNaN(v) ? "—" : Number(v).toLocaleString("en-IN", { minimumFractionDigits: d, maximumFractionDigits: d });
 const cls = v => v > 0 ? "up" : v < 0 ? "dn" : "mut";
@@ -96,7 +86,6 @@ window.toggleWatch = (s, el) => {
   let w = wl(); w = w.includes(s) ? w.filter(x => x !== s) : [...w, s]; store.set("watch", w);
   if (el) { el.classList.toggle("on"); el.textContent = w.includes(s) ? "★" : "☆"; }
 };
-/* Chart links — Deadly Stocks's own builders (bundle 4071): provider preference, TradingView default, 5-min. */
 const CHART_PROVIDERS = { tradingview: "TradingView", lemonn: "Lemonn", fyers: "Fyers" };
 const chartProvider = () => { const p = store.get("chart_provider", "tradingview"); return CHART_PROVIDERS[p] ? p : "tradingview"; };
 function chartUrl(sym, prov = chartProvider()) {
@@ -108,16 +97,12 @@ function chartUrl(sym, prov = chartProvider()) {
   return `https://www.tradingview.com/chart/?symbol=NSE:${sym.replace(/[-&]/g, "_")}&interval=5`.replace(/NIFTY 50/g, "NIFTY").replace(/NIFTY BANK/g, "BANKNIFTY");
 }
 window.openChart = s => window.open(chartUrl(s), "_blank", "noopener,noreferrer");
-// Row / tile click → chart (like TF's symbol link + heatmap tiles). Stars, links, inputs, buttons keep their own action;
-// selecting text doesn't count as a click.
 document.addEventListener("click", e => {
   if (e.defaultPrevented || e.button !== 0 || String(getSelection() || "")) return;
   if (e.target.closest("a,button,input,select,label,.star,.chart-l,th")) return;
   const el = e.target.closest("tr[data-sym],.t[data-sym]"); if (!el) return;
   openChart(el.dataset.sym);
 });
-
-/* ───────────── tooltip ───────────── */
 const tip = $("#tip");
 document.addEventListener("mousemove", e => {
   const t = e.target.closest("[data-tip]");
@@ -126,17 +111,8 @@ document.addEventListener("mousemove", e => {
   const x = Math.min(e.clientX + 14, innerWidth - tip.offsetWidth - 8);
   tip.style.left = x + "px"; tip.style.top = (e.clientY + 14) + "px";
 });
-
-/* ───────────── table widget (Deadly Stocks semantics) ─────────────
-   Sorting follows TF's own bundle (calib/tf_bundle 8112 + 84535):
-   · click the active column → flip desc⇄asc; click a new column → desc (SYMBOL → asc)
-   · numbers compare numerically, numeric strings are parsed, "HH:MM" / "YYYY-MM-DD HH:MM" as time
-   · ties always break on SYMBOL A→Z
-   · the sort is re-applied every time data arrives, so rows re-arrange live.
-   Refreshes patch rows in place (no page rebuild): sort, filters, search focus and scroll survive,
-   moved rows glide to their new slot, changed numbers flash, new entries are highlighted. */
 const TSTATE = {}, TABLES = {};
-const HEAT_W = [5, 4, 3.3, 2.5, 2, 1.67, 1.43, 1.25, 1.11];           // TF heatmap rank weights
+const HEAT_W = [5, 4, 3.3, 2.5, 2, 1.67, 1.43, 1.25, 1.11];
 const NUMRE = /^[+-]?(?:\d+\.?\d*|\.\d+)$/;
 function sortVal(v) {
   if (typeof v === "number") return Number.isFinite(v) ? v : 0;
@@ -147,12 +123,12 @@ function sortVal(v) {
   if (m) return Date.UTC(+m[1], m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0), +(m[6] || 0)) / 1e3;
   return NUMRE.test(t) ? parseFloat(t) : t.toUpperCase();
 }
-function tfSort(rows, key, dir) {          // dir: -1 desc, 1 asc
+function tfSort(rows, key, dir) {
   return rows.sort((a, b) => {
     const x = sortVal(key(a)), y = sortVal(key(b));
     let c = 0;
     if (typeof x === typeof y) c = x < y ? -1 : x > y ? 1 : 0;
-    else c = typeof x === "number" ? -1 : 1;                        // numbers before text
+    else c = typeof x === "number" ? -1 : 1;
     if (c) return c * dir;
     const p = String(a.sym ?? "").toUpperCase(), q = String(b.sym ?? "").toUpperCase();
     return p < q ? -1 : p > q ? 1 : 0;
@@ -160,7 +136,6 @@ function tfSort(rows, key, dir) {          // dir: -1 desc, 1 asc
 }
 const rowKey = r => `${r.sym}|${r.dtime ?? r.time ?? r.date ?? ""}`;
 function tableCard(id, o) {
-  // o: {title, info, rows, cols, sort:[key,dir], filters:{dir,sector,price,volt}, sectors, search, tall, heat}
   const st = TSTATE[id] ||= { sort: o.sort || null, q: "", dir: "all", sector: "all", price: "All", volt: "all", view: "table" };
   const t = TABLES[id] ||= { id };
   t.st = st; t.o = o;
@@ -180,7 +155,7 @@ function tableCard(id, o) {
 function mountTable(t) {
   const el = document.getElementById(t.id); if (!el) return;
   const { st } = t;
-  t.prev = null;                                                     // fresh DOM: no move/flash animation
+  t.prev = null;
   el.querySelectorAll("[data-f]").forEach(inp => {
     if (inp.dataset.f === "sector") fillSectors(t, inp);
     inp.value = st[inp.dataset.f];
@@ -196,7 +171,6 @@ function fillSectors(t, inp) {
   inp.innerHTML = `<option value="all">All</option>${secs.map(s => `<option>${esc(s)}</option>`).join("")}`;
   inp.value = t.st.sector;
 }
-// refresh path: new data into an existing card, rows re-sorted + animated
 function updateTable(t, rows, extra = {}) {
   Object.assign(t.o, extra, { rows });
   const el = document.getElementById(t.id); if (!el) return;
@@ -229,8 +203,6 @@ function renderRows(t, { quiet } = {}) {
   const heat = o.heat && st.view === "heat";
   tw.style.display = heat ? "none" : ""; hm.style.display = heat ? "" : "none";
   if (heat) { drawHeat(t, hm, rows); t.prev = null; return; }
-
-  // snapshot old positions + values (for FLIP + flash)
   const oldPos = {}, oldVal = t.prev || {};
   tw.querySelectorAll("tbody tr[data-key]").forEach(tr => oldPos[tr.dataset.key] = tr.getBoundingClientRect().top);
   const sortCol = st.sort && st.sort[0];
@@ -256,8 +228,6 @@ function renderRows(t, { quiet } = {}) {
   tw.innerHTML = `<table><thead><tr>${th}</tr></thead><tbody>${body}</tbody></table>`;
   tw.scrollTop = top;
   t.prev = vals;
-
-  // FLIP: rows that changed rank slide from their old slot to the new one
   if (!quiet && Object.keys(oldPos).length) {
     const moved = [];
     tw.querySelectorAll("tbody tr[data-key]").forEach(tr => {
@@ -274,7 +244,6 @@ function renderRows(t, { quiet } = {}) {
     t.prev = null; renderRows(t, { quiet: 1 });
   });
 }
-// TF heatmap: tiles in table order (top 50), size = |sort value|² × rank weight, colour = % change
 function drawHeat(t, el, rows) {
   const k = t.st.sort?.[0], col = t.o.cols.find(c => c.k === k), key = col?.sk || (r => r[k]);
   const n = Math.min(rows.length, 50);
@@ -286,13 +255,11 @@ function drawHeat(t, el, rows) {
   });
   treemap(el, items, t.o.tall ? 620 : 400);
 }
-// One call for table-heavy pages: first load builds the DOM, refreshes only patch rows.
 function paint(v, tables, html, refresh, rowsOf) {
   const alive = refresh && tables.every(t => document.getElementById(t.id));
   if (alive) { tables.forEach(t => updateTable(t, rowsOf ? rowsOf(t) : t.o.rows)); return true; }
   v.innerHTML = html(); tables.forEach(mountTable); return false;
 }
-// Intraday Boost price buckets, applied to the day's open
 const PRICE_BUCKETS = ["All", "100 - 1K", "1K - 1.5K", "1.5K - 2K", "2K - 3K", "3K - 5K", "5K - Beyond"];
 function inBucket(e, b) {
   if (!(e > 0)) return false;
@@ -308,8 +275,6 @@ const C = {
   num: (k, label, d = 2) => ({ k, label, r: 1, fmt: r => `<span class="num">${inr(r[k], d)}</span>` }),
   txt: (k, label) => ({ k, label, r: 1, fmt: r => `<span class="num mut">${esc(r[k] ?? "")}</span>` }),
 };
-
-/* ───────────── treemap (squarified) ───────────── */
 function squarify(items, x, y, w, h) {
   const out = []; items = items.filter(i => i.w > 0).sort((a, b) => b.w - a.w);
   const total = items.reduce((s, i) => s + i.w, 0); if (!total) return out;
@@ -336,8 +301,6 @@ function treemap(el, items, height) {
   el.innerHTML = squarify(items, 0, 0, W, height).map(t => `<div class="t${t.sym ? " clk" : ""}"${t.sym ? ` data-sym="${esc(t.sym)}"` : ""} style="left:${t.x}px;top:${t.y}px;width:${t.w}px;height:${t.h}px;background:${t.color}" data-tip="${esc(t.tip || t.label)}">
       ${t.w > 44 && t.h > 20 ? `<span>${esc(t.label)}</span>` : ""}${t.w > 60 && t.h > 38 && t.sub ? `<small>${esc(t.sub)}</small>` : ""}</div>`).join("");
 }
-
-/* ───────────── small svg charts ───────────── */
 function barsSVG(vals, labels, { h = 150, color } = {}) {
   const n = vals.length, W = 1000, mx = Math.max(1, ...vals.map(Math.abs)), bw = W / n * .66, mid = h / 2;
   const bars = vals.map((v, i) => { const bh = Math.abs(v) / mx * (h / 2 - 8), x = i * W / n + (W / n - bw) / 2;
@@ -351,7 +314,7 @@ function donutSVG(a, b, ca, cb, center) {
     <text x="100" y="92" text-anchor="middle" fill="#8fa4bc" font-size="13" font-weight="600">PCR</text>
     <text x="100" y="118" text-anchor="middle" fill="#fff" font-size="24" font-weight="700">${center}</text></svg>`;
 }
-function gaugeSVG(x, label) {   // x in [-1,1]
+function gaugeSVG(x, label) {
   const a = Math.PI * (1 - (x + 1) / 2), cx = 110, cy = 100, r = 78;
   const nx = cx + Math.cos(a) * (r - 14), ny = cy - Math.sin(a) * (r - 14);
   return `<svg viewBox="0 0 220 130" width="100%" height="130"><defs><linearGradient id="gg" x1="0" x2="1"><stop offset="0" stop-color="#f07178"/><stop offset=".5" stop-color="#8fa4bc"/><stop offset="1" stop-color="#3ecf8e"/></linearGradient></defs>
@@ -361,11 +324,8 @@ function gaugeSVG(x, label) {   // x in [-1,1]
     <text x="${cx}" y="16" fill="#8fa4bc" font-size="10" text-anchor="middle">Neutral</text>
     <text x="${cx}" y="124" fill="#fff" font-size="13" font-weight="700" text-anchor="middle">${label}</text></svg>`;
 }
-
-/* ───────────── pages ───────────── */
 const PAGES = {};
 let timer = null, curRoute = null;
-
 PAGES.home = {
   every: 15000,
   async render(v) {
@@ -392,24 +352,22 @@ PAGES.home = {
       <div class="grid g4">${tools.map(t => `<a class="card tool" href="#/${t[0]}"><div class="ti">${t[1]}</div><h3>${t[2]}</h3><p>${t[3]}</p></a>`).join("")}</div>`;
   },
 };
-
-// Tooltips: scanner description, then "Rule" = how we compute it.
 const TIP = {
-  bb: "Stocks breaking out with momentum as participation builds.<br><i>Rule (calibrated, 69% time match): 5-min close beyond the day's running high/low. SGN % = best move since the signal.</i>",
-  ib: "Stocks with a sharp pickup in today's activity versus the last 20 sessions.<br><i>Rule (refit on 01-Oct full session): R.FAC = k·x − 0.3, x = high−low since 09:16 ÷ 20-day avg full-day range, k learned per stock that day (fallback 1.626·x − 0.409). Out-of-sample 5.7–15%. SGN: LTP vs open.</i>",
+  bb: "Stocks breaking out with momentum as participation builds.",
+  ib: "Stocks with a sharp pickup in today's activity versus the last 20 sessions.",
   tl: "Names trading near the day's high — candidates for breakouts and reversals from those levels. Diff = % below the day high.",
   ll: "Names trading near the day's low — candidates for breakdowns and reversal setups. Diff = % above the day low.",
   tg: "Stocks that have shown the highest rise compared to yesterday's close.",
   tlo: "Stocks that have taken the steepest falls compared to yesterday's close.",
   hp: "Cash-segment names with the highest turnover today (₹ Cr).",
-  sp: "Stocks with a sharp volume and price move in the last 5 / 10 minutes.<br><i>Rule: move ≥0.3% on ≥2× the 20-day average bar volume. Tile = volume spike.</i>",
-  ls: "LOM = Loss Of Momentum. Bullish LOM: price was falling but bulls have entered. Bearish LOM: price was rising but bears have entered. For intraday trading.<br><i>Rule (thresholds approximate): 3 lower closes into a fresh 1-hour low, then a close above the prior candle's high (mirror for bearish), 5-min.</i>",
-  ll2: "LOMs for swing trading — ride full swings and take advantage of gap up/down.<br><i>Rule: same as short term on 15-min candles.</i>",
-  cb: "Stocks that were consolidating in a tight range and have now broken out. Bullish = upside breakout, Bearish = downside.<br><i>Rule: 8-candle box ≤1.5 avg candle ranges, close outside it.</i>",
-  dr: "Stocks trading near day's high or low but showing signs of reversal.<br><i>Rule: candle after the day's extreme closes back through it and VWAP.</i>",
-  td: "Stocks breaking both the 2-day high or low — a stronger momentum shift.<br><i>Rule (calibrated, F1 0.61): first close beyond both prior sessions' high/low.</i>",
-  ia: "Completely backtested strategy for Nifty and BankNifty.<br><i>Rule (verified): index direction vs previous close at Morning 09:50, Midday 10:45 and Day End 14:55.</i>",
-  sn: "Backtested swing strategy with a Sniper Reversal entry. Updated every Friday at 4pm.<br><i>Rule (calibrated, 10/12 names): two lower weekly lows, then a higher-low week closing above the prior week, in the top 60% of its range.</i>",
+  sp: "Stocks with a sharp volume and price move in the last 5 / 10 minutes.",
+  ls: "LOM = Loss Of Momentum. Bullish LOM: price was falling but bulls have entered. Bearish LOM: price was rising but bears have entered. For intraday trading.",
+  ll2: "LOMs for swing trading — ride full swings and take advantage of gap up/down.",
+  cb: "Stocks that were consolidating in a tight range and have now broken out. Bullish = upside breakout, Bearish = downside.",
+  dr: "Stocks trading near day's high or low but showing signs of reversal.",
+  td: "Stocks breaking both the 2-day high or low — a stronger momentum shift.",
+  ia: "Completely backtested strategy for Nifty and BankNifty.",
+  sn: "Backtested swing strategy with a Sniper Reversal entry. Updated every Friday at 4pm.",
   b10: "Stocks breaking through 10-day highs or lows. Above the 10-day high = bullish momentum; below the 10-day low = bearish control.",
   b50: "Stocks breaking through 50-day highs or lows — significant shifts in market trends.",
   rr: "Stocks exhibiting reversal patterns on the daily timeframe — potential trend flips for swing traders.",
@@ -419,7 +377,6 @@ const TIP = {
   dl: "Delivery versus average — a read on whether a name is being accumulated or distributed. Highest Delivery: highest delivery % in the session. Delivery Spike: delivery has jumped versus its average.",
   ss: "See which sectors are leading, and which stocks inside them have the strongest participation.",
 };
-
 PAGES.marketPulse = {
   every: 10000,
   async render(v, refresh) {
@@ -427,8 +384,6 @@ PAGES.marketPulse = {
     const secs = d.sectors || [];
     const F = { sector: 1 }, sp = { sectors: secs, heat: 1, upd: false };
     (d.breakout_beacon || []).forEach(r => r.sgn_abs = Math.abs(r.sgn_pct));
-    // TF list sizes (checked live 2026-11-23): Intraday Boost = top 80 by R.FAC, High Power = top 50 by turnover;
-    // TF's filters then run client-side on those lists.
     d.intraday_boost = (d.intraday_boost || []).slice().sort((a, b) => (b.rf ?? -1e9) - (a.rf ?? -1e9)).slice(0, 80);
     d.high_power = (d.high_power || []).slice(0, 50);
     const tb = [
@@ -449,7 +404,6 @@ PAGES.marketPulse = {
     if (up) { up.textContent = "Updated " + new Date().toLocaleTimeString("en-IN", { hour12: false }); up.classList.remove("pulse"); void up.offsetWidth; up.classList.add("pulse"); }
   },
 };
-
 PAGES.insiderStrategy = {
   every: 30000,
   async render(v, refresh) {
@@ -479,14 +433,6 @@ PAGES.insiderStrategy = {
     }
   },
 };
-
-// TF Sector Scope — rebuilt from TF's own page code (chunk 1688, read 2026-11-25):
-//  • heatmap: groups in TF order, box = |daily score|, inside = the group's stocks sorted by R.FAC desc (top 50),
-//    tile = |% chg|; colour value = linearMap over siblings: v>0 → [0,max]→[40,100], v<0 → [min,0]→[−100,−40],
-//    palette #b02a35 #e05252 #5b6573 #22a85a #0e8f4a over −100…100; label = symbol only; click a group = zoom.
-//  • score bars: top 20 sorted high→low, value on the bar, click → that sector's table.
-//  • panels: breadth bar (majority first, 0% counts as up), top-3 positive / negative score panels highlighted,
-//    columns Symbol / Pre C / % / R.FAC / SGN (SGN = LTP vs open, '—' when neutral), default R.FAC desc.
 const SS_PAL = [[-100, [176, 42, 53]], [-50, [224, 82, 82]], [0, [91, 101, 115]], [50, [34, 168, 90]], [100, [14, 143, 74]]];
 function ssVal(v, sibs) {
   const mx = Math.max(0, ...sibs), mn = Math.min(0, ...sibs);
@@ -529,7 +475,7 @@ PAGES.sectorScope = {
       <div class="card ss-hm"><button class="ghost ss-restore" title="Reset zoom (Esc)" style="display:none">⟲ All sectors</button><div class="tm" id="sectm"></div></div>
       <div class="card" style="margin-top:16px"><h3>Daily sector score <span class="pill act">ACTIVE</span></h3><div id="ssbars"></div></div>
       <div class="grid g2" style="margin-top:16px">${tb.map(t => t.html).join("")}</div>`, refresh, t => (secs.find(s => ssId(s.sector) === t.id) || {}).stocks || []);
-    if (alive) tb.forEach(t => {                      // live refresh: breadth + highlight follow the data
+    if (alive) tb.forEach(t => {
       const el = document.getElementById(t.id), s = secs.find(x => ssId(x.sector) === t.id); if (!el || !s) return;
       el.classList.toggle("ss-pos", pos.includes(s.sector)); el.classList.toggle("ss-neg", neg.includes(s.sector));
       const sub = el.querySelector("[data-sub]"); if (sub) sub.innerHTML = breadth(s);
@@ -565,7 +511,6 @@ PAGES.sectorScope = {
     if (!me._esc) { me._esc = 1; document.addEventListener("keydown", e => { if (e.key === "Escape" && me.zoom && $("#sectm")) { me.zoom = null; me.draw(me._secs); } }); }
   },
 };
-
 PAGES.swingSpectrum = {
   every: 60000, st: { scan: "highest_delivery", segment: "fno" },
   async render(v, refresh) {
@@ -596,7 +541,6 @@ PAGES.swingSpectrum = {
     if (ww.length) treemap($("#wwtm"), ww.map(x => ({ w: 1, label: x.name, sub: `${f2(x.weekly)}%`, color: heat(x.weekly, 3), tip: `<b>${x.name}</b> weekly ${f2(x.weekly)}%` })), 220);
   },
 };
-
 const IDX = ["NIFTY50", "BANKNIFTY", "FINNIFTY", "MIDCAP", "SENSEX"];
 PAGES.optionClock = {
   every: 30000, st: { index: "NIFTY50", expiry: "", from: "09:15", to: "15:30" },
@@ -636,7 +580,6 @@ PAGES.optionClock = {
     $("#oi_go").onclick = () => { st.from = $("#oi_f").value; st.to = $("#oi_t").value; this.render(v); };
   },
 };
-
 PAGES.optionApex = {
   every: 30000, st: { index: "NIFTY50", tf: 3 }, chart: null,
   async render(v, refresh) {
@@ -675,7 +618,6 @@ PAGES.optionApex = {
     else mf.innerHTML = `<div class="empty">No constituent list for ${st.index}</div>`;
   },
 };
-
 PAGES.indexMover = {
   every: 10000, st: { index: "NIFTY50" },
   async render(v) {
@@ -710,7 +652,6 @@ PAGES.indexMover = {
     v.querySelectorAll("[data-i]").forEach(b => b.onclick = () => { st.index = b.dataset.i; this.render(v); });
   },
 };
-
 PAGES.fiiDii = {
   every: 300000,
   async render(v) {
@@ -737,7 +678,6 @@ PAGES.fiiDii = {
     mountTable(tb);
   },
 };
-
 PAGES.watchlist = {
   every: 10000,
   async render(v, refresh) {
@@ -754,7 +694,6 @@ PAGES.watchlist = {
     };
   },
 };
-
 PAGES.tradingJournal = {
   render(v) {
     const J = store.get("journal", []);
@@ -781,7 +720,6 @@ PAGES.tradingJournal = {
     v.querySelectorAll("[data-del]").forEach(b => b.onclick = () => { J.splice(+b.dataset.del, 1); store.set("journal", J); this.render(v); });
   },
 };
-
 PAGES.calculator = {
   render(v) {
     v.innerHTML = `<div class="grid g2">
@@ -817,7 +755,6 @@ PAGES.calculator = {
     v.querySelectorAll("#ps input").forEach(i => i.oninput = ps); v.querySelectorAll("#bc [name]").forEach(i => i.oninput = bc); ps(); bc();
   },
 };
-
 PAGES.status = {
   every: 5000,
   async render(v) {
@@ -827,8 +764,6 @@ PAGES.status = {
       <h3 style="margin-top:16px">Recent errors</h3><pre class="note" style="white-space:pre-wrap">${esc((s.errors || []).join("\n")) || "none"}</pre></div>`;
   },
 };
-
-/* ───────────── router ───────────── */
 async function route() {
   const r = (location.hash.replace(/^#\/?/, "") || "home").split("?")[0];
   const page = PAGES[r] || PAGES.home, gen = ++ROUTE_GEN;
@@ -853,7 +788,6 @@ let REFRESH = () => {};
 for (const [tgt, ev] of [[document, "visibilitychange"], [window, "focus"], [window, "pageshow"], [window, "online"]])
   tgt.addEventListener(ev, () => { if (document.visibilityState === "visible") REFRESH(); });
 addEventListener("hashchange", route);
-
 async function header() {
   try {
     const d = await api("home");
