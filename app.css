@@ -11,7 +11,7 @@ body{background:radial-gradient(1200px 600px at 70% -10%,#0f2142 0%,transparent 
 a{color:inherit;text-decoration:none}
 .shell{display:flex;min-height:100vh}
 
-/* sidebar */
+
 .side{width:var(--side);flex:0 0 var(--side);background:linear-gradient(180deg,#0b1424,#08101d);border-right:1px solid var(--line);
   position:sticky;top:0;height:100vh;display:flex;flex-direction:column;padding:14px 12px;overflow-y:auto;z-index:20}
 .brand{display:flex;align-items:center;gap:10px;font-size:21px;font-weight:700;letter-spacing:-.3px;padding:4px 6px 18px}
@@ -29,7 +29,7 @@ a{color:inherit;text-decoration:none}
 .dot{width:10px;height:10px;border-radius:50%;background:var(--dim)}
 .dot.live{background:var(--up);box-shadow:0 0 0 4px rgba(62,207,142,.18)}
 
-/* top */
+
 main{flex:1;min-width:0}
 .top{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:14px;padding:10px 22px;
   background:rgba(7,13,24,.85);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
@@ -42,7 +42,7 @@ main{flex:1;min-width:0}
 .burger{display:none;background:none;border:0;color:var(--txt);font-size:20px}
 #view{padding:18px 22px 40px}
 
-/* cards & grid */
+
 .grid{display:grid;gap:16px}
 .g2{grid-template-columns:repeat(2,minmax(0,1fr))}
 .g3{grid-template-columns:repeat(3,minmax(0,1fr))}
@@ -65,7 +65,7 @@ button.ghost{background:rgba(232,238,247,.05);color:var(--txt);border:1px solid 
 button.ghost.on{border-color:var(--acc);color:var(--acc2)}
 .tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
 
-/* tables */
+
 .tw{max-height:420px;overflow:auto;border-radius:10px}
 .tw.tall{max-height:640px}
 table{width:100%;border-collapse:collapse}
@@ -86,7 +86,7 @@ tr:hover td{background:rgba(232,238,247,.025)}
 .chart-l{cursor:pointer;color:var(--acc2);font-size:12px}
 .empty{color:var(--mut);padding:30px;text-align:center}
 
-/* treemap */
+
 .tm{position:relative;width:100%;border-radius:10px;overflow:hidden}
 .tm .t{position:absolute;display:flex;flex-direction:column;align-items:center;justify-content:center;
   font-weight:700;color:#fff;font-size:12px;border:2px solid var(--bg2);border-radius:6px;overflow:hidden;text-align:center;cursor:default;line-height:1.25}
@@ -94,7 +94,7 @@ tr:hover td{background:rgba(232,238,247,.025)}
 .tm .sec{position:absolute;border:2px solid var(--bg);}
 .tm .sec-l{position:absolute;left:4px;top:2px;font-size:10px;font-weight:700;color:rgba(255,255,255,.85);z-index:2;pointer-events:none;letter-spacing:.05em;text-shadow:0 1px 2px #000}
 
-/* home */
+
 .hero{padding:22px}
 .hero small{color:var(--acc2);letter-spacing:.14em;font-weight:700;font-size:11px}
 .hero h2{font-size:40px;margin:6px 0;letter-spacing:-1px;background:linear-gradient(90deg,#fff,#9cc0ff);-webkit-background-clip:text;color:transparent}
@@ -107,7 +107,7 @@ tr:hover td{background:rgba(232,238,247,.025)}
 .idx b{font-size:12px;color:var(--mut);font-weight:600}
 .idx .v{font-size:20px;font-weight:700;font-family:"Geist Mono",monospace}
 
-/* misc */
+
 .bar{height:8px;border-radius:5px;background:rgba(232,238,247,.06);overflow:hidden}
 .bar i{display:block;height:100%}
 .kv{display:flex;justify-content:space-between;padding:6px 0;border-top:1px solid var(--line)}
@@ -128,7 +128,7 @@ tr:hover td{background:rgba(232,238,247,.025)}
   #view{padding:14px 16px}
 }
 
-/* ── live tables: TF-style sort headers, live re-ordering, value flashes ── */
+
 th .si{font-style:normal;font-size:9px;margin-left:5px;color:var(--acc2,#4b8ef7)}
 th .si.ghost-i{color:var(--mut);opacity:0;letter-spacing:-2px;transition:opacity .15s}
 th:hover .si.ghost-i{opacity:.55}
@@ -152,7 +152,7 @@ tr.is-new td:first-child{box-shadow:inset 3px 0 0 #4b8ef7}
 .hm{margin-top:4px}
 @media (prefers-reduced-motion:reduce){tbody tr{transition:none!important}td.fl-up,td.fl-dn,tr.is-new td{animation:none}}
 
-/* row / tile → chart (TF opens the chart provider in a new tab) */
+
 tbody tr[data-sym]{cursor:pointer}
 .t.clk{cursor:pointer}
 .t.clk:hover{filter:brightness(1.18);z-index:2}
@@ -162,7 +162,7 @@ a.symlink:hover b{color:var(--acc2);text-decoration:underline}
 .chartpref select{padding:3px 6px;font-size:12px}
 @media (max-width:820px){.chartpref{display:none}}
 
-/* 2026-11-25 layout fixes: tables never clip their right-hand columns, header stays on one line */
+
 .top h1{white-space:nowrap}
 .top>div:first-of-type{flex:0 0 auto}
 .ticker{flex:1 1 auto;min-width:0}
@@ -170,13 +170,13 @@ a.symlink:hover b{color:var(--acc2);text-decoration:underline}
 td{padding:8px 6px}
 .chip{min-width:52px;padding:4px 6px}
 @media (max-width:1280px){.g2{grid-template-columns:1fr}}
-/* sector-scope treemap labels sized to their tile */
+
 .tm .t span{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 3px}
 .tm .sec{border-radius:6px}
 .tm .sec-l{top:1px;font-size:10px}
 .top-right{flex:1 1 auto;min-width:0;justify-content:flex-end}.top-right>*:not(.ticker){flex:0 0 auto}
 
-/* Sector Scope (TF layout) */
+
 .ss-hm{position:relative;padding:10px}
 .ss-restore{position:absolute;right:14px;top:14px;z-index:5;font-size:12px}
 .ssg{position:absolute;box-sizing:border-box;padding:0;border-radius:4px;background:rgba(10,18,32,.9);overflow:hidden}
@@ -198,7 +198,7 @@ td{padding:8px 6px}
 .ssbar-v{position:absolute;left:0;right:0;text-align:center;font-size:11px;font-weight:700;font-family:"Geist Mono",monospace}
 .ssbar-x{writing-mode:vertical-rl;transform:rotate(180deg);font-size:10px;font-weight:700;color:var(--mut);margin:6px auto 0;max-height:110px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ssbar:hover .ssbar-b{filter:brightness(1.15)}
-/* 11-25b: one-line card controls (filters · count · search · view toggle) + Market Pulse single "Updated" stamp */
+
 .chead>div:first-child{flex:1 1 auto;min-width:0}
 .chead .meta{flex-wrap:nowrap;min-width:0}
 .chead .meta select{flex:0 1 auto;min-width:64px;max-width:130px}
